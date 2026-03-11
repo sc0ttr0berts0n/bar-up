@@ -6,7 +6,8 @@
     "scripts": {
         "dev": "vite",
         "build": "vue-tsc && vite build",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "test": "vitest"
     },
     "dependencies": {
         "peerjs": "^1.5.2",
@@ -23,6 +24,7 @@
         "typescript": "^5.2.2",
         "vite": "^5.2.0",
         "vite-plugin-mkcert": "^1.17.5",
+        "vitest": "^4.0.18",
         "vue-tsc": "^2.0.6"
     }
 }

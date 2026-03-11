@@ -9,6 +9,8 @@ import Communicator from "./Network/Communicator/Communicator";
 import Server from "./Network/Server/Server";
 import { PACKET_TYPE } from "./Network/Communicator/PacketTypes";
 import { EDirection } from "./Shared/TileTypes";
+import { suite } from "./TestSuite";
+import "./tests/index"; // registers all tests with suite
 
 const DIR_MAP: Record<string, EDirection> = {
   up: EDirection.UP,
@@ -216,6 +218,12 @@ const api = {
     const bt = this._bt();
     return bt?._heldItemType ?? "nothing";
   },
+
+  // ── Test runner ─────────────────────────────────────────────
+  runAll: (filter?: string) => suite.runAll(filter),
+  run: (name: string) => suite.run(name),
+  tests: () => suite.list(),
+  abort: () => suite.abort(),
 };
 
 (window as any).__TEST = api;

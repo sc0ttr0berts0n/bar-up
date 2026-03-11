@@ -11,6 +11,7 @@ Every widget will have:
 - seat slots. These are present on all edges. so a 1x1 appliance will have 4 seat slots (that can be turned off and on). a 1x2 would have 6, and a 2x2 would have 8 slots, and so on. tables would have four, maybe high tops have up to two, and bars only have one. Customers connect into seat slots. Any appliance that get a seat slot is a place a customer can sit and drink. any appliance that has a seat with a customer on it, when looked at, brings up the customer card.
 - appliances can be place or pick up only.
 - the queue may be another attachment. the queue can be placed instead of a seat and have a queue forming direction associated with it.
+- some tiles can be user configured how big there are, all can be dev configured. an example of a user configurable is tables, they can expand up to 2 on x or y. and a bar queue can expand as wide on x or y as needed, but must by 1x?
 
 ## Application examples
 
