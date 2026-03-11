@@ -4,10 +4,32 @@ import { EItemType } from "../Shared/ItemTypes";
 import GameSettings from "../Shared/GameSettings";
 
 const ITEM_ICONS: Record<EItemType, string> = {
-  [EItemType.EMPTY_GLASS]: "🥃",
-  [EItemType.BEER]: "🍺",
-  [EItemType.DRAM]: "🥃",
+  // Glass types
+  [EItemType.PINT_GLASS]: "🍺",
+  [EItemType.SHOT_GLASS]: "🥃",
+  [EItemType.STEM_GLASS]: "🍷",
+  [EItemType.HIGHBALL_GLASS]: "🥤",
+  // Beer variants
+  [EItemType.PILSNER]: "🍺",
+  [EItemType.LAGER]: "🍺",
+  [EItemType.ALE]: "🍺",
+  [EItemType.IPA]: "🍺",
+  // Wine variants
+  [EItemType.MERLOT]: "🍷",
+  [EItemType.CHARDONNAY]: "🍷",
+  [EItemType.PINOT_NOIR]: "🍷",
+  [EItemType.ROSE]: "🍷",
+  // Spirit variants
+  [EItemType.WHISKEY]: "🥃",
+  [EItemType.VODKA]: "🥃",
+  [EItemType.GIN]: "🥃",
+  [EItemType.RUM]: "🥃",
+  // Mixed
+  [EItemType.HIGHBALL]: "🍹",
+  // Other
   [EItemType.DIRTY_GLASS]: "💀",
+  [EItemType.CUT_OFF_CARD]: "🚫",
+  [EItemType.TRASH_BAG]: "🗑️",
 };
 
 export class ItemView extends Container {

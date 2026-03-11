@@ -14,6 +14,8 @@ export class BartenderView extends Container {
   private _interactBar: Graphics;
   private _color: number;
   private _size: number;
+  private _displayX: number = -1;
+  private _displayY: number = -1;
 
   constructor(color: number) {
     super();
@@ -74,11 +76,19 @@ export class BartenderView extends Container {
     const tileSize = GameSettings.tileSize;
     const r = this._size / 2;
 
-    // Interpolate position
-    const pixelX = lerp(state.gridX, state.targetX, state.moveProgress) * tileSize + tileSize / 2;
-    const pixelY = lerp(state.gridY, state.targetY, state.moveProgress) * tileSize + tileSize / 2;
-    this.x = pixelX;
-    this.y = pixelY;
+    // Smooth client-side interpolation toward server position
+    const targetPixelX = lerp(state.gridX, state.targetX, state.moveProgress) * tileSize + tileSize / 2;
+    const targetPixelY = lerp(state.gridY, state.targetY, state.moveProgress) * tileSize + tileSize / 2;
+    if (this._displayX < 0) {
+      this._displayX = targetPixelX;
+      this._displayY = targetPixelY;
+    } else {
+      const smoothing = 0.25;
+      this._displayX = lerp(this._displayX, targetPixelX, smoothing);
+      this._displayY = lerp(this._displayY, targetPixelY, smoothing);
+    }
+    this.x = this._displayX;
+    this.y = this._displayY;
 
     // Player number
     this._playerLabel.text = `P${state.number + 1}`;

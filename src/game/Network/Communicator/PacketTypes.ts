@@ -11,8 +11,12 @@ export const PACKET_TYPE = {
   CLIENT_MOVE: "client-move",
   CLIENT_STOP: "client-stop",
   CLIENT_INTERACT: "client-interact",
+  CLIENT_GRAB: "client-grab",
+  CLIENT_SELECT: "client-select",
   CLIENT_JOIN_GAME: "client-join-game",
   CLIENT_LEAVE_GAME: "client-leave-game",
+  CLIENT_SET_MENU: "client-set-menu",
+  CLIENT_RESTOCK: "client-restock",
   SERVER_UPDATE: "server-update",
   SERVER_METADATA: "server-metadata",
 } as const;
@@ -52,6 +56,13 @@ export enum EEngineEventType {
   MONEY_EARNED = 7,
   ITEM_PICKED_UP = 8,
   ITEM_CRAFTED = 9,
+  GUEST_OVERSERVED = 10,
+  BAR_FIGHT_STARTED = 11,
+  BAR_FIGHT_RESOLVED = 12,
+  GUEST_SLIPPED = 13,
+  GUEST_HELPED_UP = 14,
+  REPUTATION_CHANGE = 15,
+  SHIFT_SUMMARY = 16,
 }
 
 export interface INetworkPacketServerUpdate extends INetworkPacket {
@@ -65,6 +76,9 @@ export interface INetworkPacketServerUpdate extends INetworkPacket {
     money: number;
     shiftPhase: string;
     shiftTimer: number;
+    messes: { x: number; y: number }[];
+    reputation: number;
+    menuConfig: { drinkKey: string; enabled: boolean; price: number }[];
   };
 }
 
@@ -92,6 +106,17 @@ export interface INetworkPacketClientInteract extends ITargetedNetworkPacket {
   type: (typeof PACKET_TYPE)["CLIENT_INTERACT"];
 }
 
+export interface INetworkPacketClientGrab extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_GRAB"];
+}
+
+export interface INetworkPacketClientSelect extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_SELECT"];
+  data: {
+    variantIndex: number;
+  };
+}
+
 export interface INetworkPacketClientJoinGame extends ITargetedNetworkPacket {
   type: (typeof PACKET_TYPE)["CLIENT_JOIN_GAME"];
   data: {
@@ -101,4 +126,20 @@ export interface INetworkPacketClientJoinGame extends ITargetedNetworkPacket {
 
 export interface INetworkPacketClientLeaveGame extends ITargetedNetworkPacket {
   type: (typeof PACKET_TYPE)["CLIENT_LEAVE_GAME"];
+}
+
+export interface INetworkPacketClientSetMenu extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_SET_MENU"];
+  data: {
+    drinkKey: string;
+    enabled: boolean;
+    price: number;
+  };
+}
+
+export interface INetworkPacketClientRestock extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_RESTOCK"];
+  data: {
+    applianceId: string;
+  };
 }

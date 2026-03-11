@@ -63,6 +63,9 @@ export class Game {
           money: this.engine.money,
           shiftPhase: this.engine.shiftManager.phase,
           shiftTimer: this.engine.shiftManager.remainingTime,
+          messes: this.engine.messes,
+          reputation: this.engine.reputation,
+          menuConfig: this.engine.menuConfig,
         },
       });
 

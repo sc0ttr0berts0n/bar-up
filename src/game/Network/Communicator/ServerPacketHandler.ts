@@ -39,6 +39,7 @@ export class ServerPacketHandler {
   private static _guestSchema = z.object({
     id: z.string(),
     partyId: z.string(),
+    name: z.string(),
     gridX: z.number(),
     gridY: z.number(),
     targetX: z.number(),
@@ -49,11 +50,21 @@ export class ServerPacketHandler {
     happiness: z.number(),
     roundsRemaining: z.number(),
     seatApplianceId: z.union([z.string(), z.null()]),
+    seatApplianceGridX: z.number(),
+    seatApplianceGridY: z.number(),
     seatIndex: z.number(),
     drinkProgress: z.number(),
     statusTimer: z.number(),
     drunkenness: z.number(),
+    drunkGoal: z.number(),
     ordersCompleted: z.number(),
+    chatCount: z.number(),
+    preferredDrink: z.union([z.string(), z.null()]),
+    preferenceRevealed: z.boolean(),
+    traitCount: z.number(),
+    revealedTraits: z.array(z.string()),
+    queuePosition: z.number(),
+    carryingDirtyGlass: z.boolean(),
   });
 
   private static _applianceSchema = z.object({
@@ -67,6 +78,8 @@ export class ServerPacketHandler {
     maxSlots: z.number(),
     seatIds: z.array(z.string()),
     maxSeats: z.number(),
+    currentStock: z.number(),
+    maxStock: z.number(),
   });
 
   private static _itemSchema = z.object({
@@ -105,6 +118,9 @@ export class ServerPacketHandler {
       money: z.number(),
       shiftPhase: z.string(),
       shiftTimer: z.number(),
+      messes: z.array(z.object({ x: z.number(), y: z.number() })),
+      reputation: z.number(),
+      menuConfig: z.array(z.object({ drinkKey: z.string(), enabled: z.boolean(), price: z.number() })),
     }),
   });
 

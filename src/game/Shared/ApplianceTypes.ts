@@ -7,8 +7,11 @@ export enum EApplianceType {
   DRAFT_SYSTEM = "draft_system",
   SINK = "sink",
   BIN = "bin",
+  WINE_RACK = "wine_rack",
+  CARD_HOLDER = "card_holder",
   HIGHTOP = "hightop",
   TABLE = "table",
+  BAR_QUEUE = "bar_queue",
 }
 
 export interface IApplianceStateData {
@@ -22,6 +25,8 @@ export interface IApplianceStateData {
   maxSlots: number;
   seatIds: string[];
   maxSeats: number;
+  currentStock: number;
+  maxStock: number;
 }
 
 /** Which side of the appliance is accessible for interaction */
@@ -41,97 +46,81 @@ export interface IApplianceConfig {
   maxSeats: number;
   label: string;
   color: number;
+  stockCapacity: number;
+  restockCost: number;
 }
 
 export const APPLIANCE_CONFIGS: Record<EApplianceType, IApplianceConfig> = {
   [EApplianceType.COUNTER]: {
-    type: EApplianceType.COUNTER,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 1,
-    maxSeats: 1,
-    label: "Bar",
-    color: 0xc4a35a,
+    type: EApplianceType.COUNTER, sizeX: 1, sizeY: 1, maxSlots: 1, maxSeats: 1,
+    label: "Bar", color: 0xc4a35a, stockCapacity: 0, restockCost: 0,
   },
   [EApplianceType.SERVICE_BAR]: {
-    type: EApplianceType.SERVICE_BAR,
-    sizeX: 2,
-    sizeY: 1,
-    maxSlots: 8,
-    maxSeats: 0,
-    label: "Service",
-    color: 0x8b7355,
+    type: EApplianceType.SERVICE_BAR, sizeX: 2, sizeY: 1, maxSlots: 8, maxSeats: 0,
+    label: "Service", color: 0x8b7355, stockCapacity: 0, restockCost: 0,
   },
   [EApplianceType.ICE_WELL]: {
-    type: EApplianceType.ICE_WELL,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 0,
-    maxSeats: 0,
-    label: "ICE",
-    color: 0x87ceeb,
+    type: EApplianceType.ICE_WELL, sizeX: 1, sizeY: 1, maxSlots: 0, maxSeats: 0,
+    label: "ICE", color: 0x87ceeb, stockCapacity: 20, restockCost: 5,
   },
   [EApplianceType.LIQUOR_RAIL]: {
-    type: EApplianceType.LIQUOR_RAIL,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 8,
-    maxSeats: 0,
-    label: "Liquor",
-    color: 0xdaa520,
+    type: EApplianceType.LIQUOR_RAIL, sizeX: 1, sizeY: 1, maxSlots: 8, maxSeats: 0,
+    label: "Liquor", color: 0xdaa520, stockCapacity: 20, restockCost: 15,
   },
   [EApplianceType.GLASS_SHELF]: {
-    type: EApplianceType.GLASS_SHELF,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 40,
-    maxSeats: 0,
-    label: "Glass",
-    color: 0xb0c4de,
+    type: EApplianceType.GLASS_SHELF, sizeX: 1, sizeY: 1, maxSlots: 40, maxSeats: 0,
+    label: "Glass", color: 0xb0c4de, stockCapacity: 30, restockCost: 10,
   },
   [EApplianceType.DRAFT_SYSTEM]: {
-    type: EApplianceType.DRAFT_SYSTEM,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 8,
-    maxSeats: 0,
-    label: "Draft",
-    color: 0xcd853f,
+    type: EApplianceType.DRAFT_SYSTEM, sizeX: 1, sizeY: 1, maxSlots: 8, maxSeats: 0,
+    label: "Draft", color: 0xcd853f, stockCapacity: 20, restockCost: 10,
   },
   [EApplianceType.SINK]: {
-    type: EApplianceType.SINK,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 2,
-    maxSeats: 0,
-    label: "Sink",
-    color: 0x708090,
+    type: EApplianceType.SINK, sizeX: 1, sizeY: 1, maxSlots: 2, maxSeats: 0,
+    label: "Sink", color: 0x708090, stockCapacity: 0, restockCost: 0,
   },
   [EApplianceType.BIN]: {
-    type: EApplianceType.BIN,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 20,
-    maxSeats: 0,
-    label: "BIN",
-    color: 0x696969,
+    type: EApplianceType.BIN, sizeX: 1, sizeY: 1, maxSlots: 3, maxSeats: 0,
+    label: "BIN", color: 0x696969, stockCapacity: 0, restockCost: 0,
+  },
+  [EApplianceType.WINE_RACK]: {
+    type: EApplianceType.WINE_RACK, sizeX: 1, sizeY: 1, maxSlots: 8, maxSeats: 0,
+    label: "Wine", color: 0x722f37, stockCapacity: 20, restockCost: 12,
+  },
+  [EApplianceType.CARD_HOLDER]: {
+    type: EApplianceType.CARD_HOLDER, sizeX: 1, sizeY: 1, maxSlots: 0, maxSeats: 0,
+    label: "Cards", color: 0xff4444, stockCapacity: 0, restockCost: 0,
   },
   [EApplianceType.HIGHTOP]: {
-    type: EApplianceType.HIGHTOP,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 0,
-    maxSeats: 4,
-    label: "Hi-Top",
-    color: 0x8b4513,
+    type: EApplianceType.HIGHTOP, sizeX: 1, sizeY: 1, maxSlots: 0, maxSeats: 4,
+    label: "Hi-Top", color: 0x8b4513, stockCapacity: 0, restockCost: 0,
   },
   [EApplianceType.TABLE]: {
-    type: EApplianceType.TABLE,
-    sizeX: 1,
-    sizeY: 1,
-    maxSlots: 0,
-    maxSeats: 4,
-    label: "Table",
-    color: 0xa0522d,
+    type: EApplianceType.TABLE, sizeX: 1, sizeY: 1, maxSlots: 0, maxSeats: 4,
+    label: "Table", color: 0xa0522d, stockCapacity: 0, restockCost: 0,
   },
+  [EApplianceType.BAR_QUEUE]: {
+    type: EApplianceType.BAR_QUEUE, sizeX: 3, sizeY: 1, maxSlots: 6, maxSeats: 0,
+    label: "Queue", color: 0xb8860b, stockCapacity: 0, restockCost: 0,
+  },
+};
+
+/** Seat offsets in fractions of tileSize from the appliance center.
+ *  Each entry is [dx, dy] — used for placing chair visuals and seating guests. */
+export const SEAT_OFFSETS: Partial<Record<EApplianceType, [number, number][]>> = {
+  [EApplianceType.COUNTER]: [
+    [0, 0.6],    // south (guest side of the bar)
+  ],
+  [EApplianceType.HIGHTOP]: [
+    [0, -0.6],   // top
+    [0.6, 0],    // right
+    [0, 0.6],    // bottom
+    [-0.6, 0],   // left
+  ],
+  [EApplianceType.TABLE]: [
+    [0, -0.6],
+    [0.6, 0],
+    [0, 0.6],
+    [-0.6, 0],
+  ],
 };

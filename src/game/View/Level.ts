@@ -1,13 +1,18 @@
-import { Container, Ticker } from "pixi.js";
+import { Container, Graphics, Text, Ticker } from "pixi.js";
 import GameSettings from "../Shared/GameSettings";
+import { ITEM_DISPLAY } from "../Shared/ItemTypes";
+import Communicator from "../Network/Communicator/Communicator";
 import { TileGridView } from "./TileGridView";
 import { ApplianceView } from "./ApplianceView";
 import { DEFAULT_BAR_LAYOUT } from "../Shared/BarLayout";
-import { APPLIANCE_CONFIGS } from "../Shared/ApplianceTypes";
+import { APPLIANCE_CONFIGS, SEAT_OFFSETS } from "../Shared/ApplianceTypes";
 
 export class Level extends Container {
   private _scaleContainer = new Container();
   private _entityContainer = new Container();
+  private _messLayer = new Graphics();
+  private _itemLayer = new Container();
+  private _itemPool: { bg: Graphics; label: Text }[] = [];
   private _tileGridView: TileGridView;
   private _applianceViews: ApplianceView[] = [];
 
@@ -46,6 +51,32 @@ export class Level extends Container {
       this._applianceViews.push(view);
     }
 
+    // Chair markers at seating appliances
+    const chairLayer = new Graphics();
+    const ts = GameSettings.tileSize;
+    const chairW = ts * 0.35;
+    const chairH = ts * 0.3;
+    const chairR = 4;
+    for (const placement of layout.appliances) {
+      const offsets = SEAT_OFFSETS[placement.type];
+      if (!offsets) continue;
+      const cx = placement.gridX * ts + ts / 2;
+      const cy = placement.gridY * ts + ts / 2;
+      for (const [dx, dy] of offsets) {
+        const sx = cx + dx * ts - chairW / 2;
+        const sy = cy + dy * ts - chairH / 2;
+        chairLayer.roundRect(sx, sy, chairW, chairH, chairR).fill(0x5c3a1e);
+        chairLayer.roundRect(sx, sy, chairW, chairH, chairR).stroke({ color: 0x3a2412, width: 1 });
+      }
+    }
+    this._scaleContainer.addChild(chairLayer);
+
+    // Mess layer between appliances and entities
+    this._scaleContainer.addChild(this._messLayer);
+
+    // Item layer for items sitting on appliances
+    this._scaleContainer.addChild(this._itemLayer);
+
     // Entity container goes on top
     this._scaleContainer.addChild(this._entityContainer);
 
@@ -72,7 +103,78 @@ export class Level extends Container {
     this._scaleContainer.y = (window.innerHeight - scaledHeight) / 2;
   }
 
+  /** Convert world pixel coordinates to screen coordinates */
+  worldToScreen(wx: number, wy: number): { x: number; y: number } {
+    const s = this._scaleContainer.scale.x;
+    return {
+      x: this._scaleContainer.x + wx * s,
+      y: this._scaleContainer.y + wy * s,
+    };
+  }
+
   update(_delta: Ticker) {
-    // Could add camera tracking here later
+    // Render messes
+    this._messLayer.clear();
+    const messes = Communicator.state?.data?.messes;
+    if (messes) {
+      const ts = GameSettings.tileSize;
+      for (const mess of messes) {
+        const cx = mess.x * ts + ts / 2;
+        const cy = mess.y * ts + ts / 2;
+        this._messLayer.circle(cx, cy, ts * 0.25).fill(0x6b4423);
+        this._messLayer.circle(cx + 6, cy - 4, ts * 0.15).fill(0x7a5230);
+        this._messLayer.circle(cx - 5, cy + 5, ts * 0.12).fill(0x5c3a1e);
+      }
+    }
+
+    // Render items on appliances
+    const data = Communicator.state?.data;
+    if (data) {
+      const ts = GameSettings.tileSize;
+      // Build appliance lookup
+      const applianceMap = new Map(data.appliances.map((a) => [a.id, a]));
+      // Filter to items placed on appliances (not held by players)
+      const surfaceItems = data.items.filter((i) => i.locationApplianceId && !i.heldByPlayerId);
+
+      // Grow pool if needed
+      while (this._itemPool.length < surfaceItems.length) {
+        const bg = new Graphics();
+        const label = new Text({
+          text: "",
+          style: { fontFamily: "monospace", fontSize: 9, fill: 0xffffff, fontWeight: "bold" },
+        });
+        label.anchor.set(0.5);
+        this._itemLayer.addChild(bg);
+        this._itemLayer.addChild(label);
+        this._itemPool.push({ bg, label });
+      }
+
+      for (let i = 0; i < this._itemPool.length; i++) {
+        const entry = this._itemPool[i];
+        if (i < surfaceItems.length) {
+          const item = surfaceItems[i];
+          const appliance = applianceMap.get(item.locationApplianceId!);
+          if (!appliance) { entry.bg.visible = false; entry.label.visible = false; continue; }
+
+          const display = ITEM_DISPLAY[item.type] ?? { label: "?", color: 0x999999 };
+          const cx = appliance.gridX * ts + ts / 2;
+          const cy = appliance.gridY * ts + ts / 2;
+          const pillW = 24;
+          const pillH = 12;
+
+          entry.bg.clear();
+          entry.bg.roundRect(cx - pillW / 2, cy - pillH / 2, pillW, pillH, 3).fill(display.color);
+          entry.bg.visible = true;
+
+          entry.label.text = display.label;
+          entry.label.x = cx;
+          entry.label.y = cy;
+          entry.label.visible = true;
+        } else {
+          entry.bg.visible = false;
+          entry.label.visible = false;
+        }
+      }
+    }
   }
 }

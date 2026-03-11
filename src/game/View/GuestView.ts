@@ -1,17 +1,23 @@
 import { Container, Graphics, Text, type Ticker } from "pixi.js";
 import type { IGuestStateData } from "../Shared/GuestTypes";
-import { EGuestStatus } from "../Shared/GuestTypes";
+import { EGuestStatus, EGuestTrait, TRAIT_DISPLAY } from "../Shared/GuestTypes";
 import { ITEM_DISPLAY } from "../Shared/ItemTypes";
 import GameSettings from "../Shared/GameSettings";
 import { lerp } from "../Utils/Lerp";
 
 const STATUS_ICONS: Record<EGuestStatus, string> = {
-  [EGuestStatus.WALKING_TO_SEAT]: "🚶",
-  [EGuestStatus.DECIDING]: "🤔",
-  [EGuestStatus.READY_TO_ORDER]: "❗",
-  [EGuestStatus.WAITING_FOR_ORDER]: "⏳",
-  [EGuestStatus.DRINKING]: "🍻",
-  [EGuestStatus.LEAVING]: "👋",
+  [EGuestStatus.WAITING_AT_DOOR]: "\uD83D\uDEAA",
+  [EGuestStatus.WALKING_TO_SEAT]: "\uD83D\uDEB6",
+  [EGuestStatus.DECIDING]: "\uD83E\uDD14",
+  [EGuestStatus.READY_TO_ORDER]: "\u2757",
+  [EGuestStatus.WALKING_TO_QUEUE]: "\uD83D\uDEB6",
+  [EGuestStatus.QUEUED]: "\u23F3",
+  [EGuestStatus.RETURNING_TO_SEAT]: "\uD83C\uDF7A",
+  [EGuestStatus.WAITING_FOR_ORDER]: "\u23F3",
+  [EGuestStatus.DRINKING]: "\uD83C\uDF7B",
+  [EGuestStatus.FIGHTING]: "\uD83E\uDD4A",
+  [EGuestStatus.SLIPPED]: "\uD83D\uDCAB",
+  [EGuestStatus.LEAVING]: "\uD83D\uDC4B",
 };
 
 export class GuestView extends Container {
@@ -21,6 +27,15 @@ export class GuestView extends Container {
   private _drinkProgressBar: Graphics;
   private _orderBubbleBg: Graphics;
   private _orderBubbleText: Text;
+  private _chatBubble: Text;
+  private _lastChatCount: number = 0;
+  private _chatBubbleTimer: number = 0;
+  private _preferenceBubbleBg: Graphics;
+  private _preferenceText: Text;
+  private _drinkGlass: Graphics;
+  private _traitIcons: Text;
+  private _displayX: number = -1;
+  private _displayY: number = -1;
 
   constructor() {
     super();
@@ -35,13 +50,13 @@ export class GuestView extends Container {
     this._body.stroke({ color: 0x333333, width: 1 });
     this.addChild(this._body);
 
-    // Status icon above head
+    // Status icon centered on body
     this._statusIcon = new Text({
       text: "",
       style: { fontSize: 16 },
     });
     this._statusIcon.anchor.set(0.5);
-    this._statusIcon.y = -r - 14;
+    this._statusIcon.y = 0;
     this.addChild(this._statusIcon);
 
     // Order bubble background
@@ -60,7 +75,7 @@ export class GuestView extends Container {
       },
     });
     this._orderBubbleText.anchor.set(0.5);
-    this._orderBubbleText.y = -r - 30;
+    this._orderBubbleText.y = -r - 16;
     this._orderBubbleText.visible = false;
     this.addChild(this._orderBubbleText);
 
@@ -74,6 +89,49 @@ export class GuestView extends Container {
     this._drinkProgressBar.y = r + 11;
     this._drinkProgressBar.visible = false;
     this.addChild(this._drinkProgressBar);
+
+    // Chat bubble (shows briefly after chatting)
+    this._chatBubble = new Text({
+      text: "💬",
+      style: { fontSize: 18 },
+    });
+    this._chatBubble.anchor.set(0.5);
+    this._chatBubble.x = r + 10;
+    this._chatBubble.y = -r;
+    this._chatBubble.visible = false;
+    this.addChild(this._chatBubble);
+
+    // Preference bubble (shows when revealed)
+    this._preferenceBubbleBg = new Graphics();
+    this._preferenceBubbleBg.visible = false;
+    this.addChild(this._preferenceBubbleBg);
+
+    this._preferenceText = new Text({
+      text: "",
+      style: {
+        fontFamily: "monospace",
+        fontSize: 10,
+        fill: 0xffffff,
+        fontWeight: "bold",
+      },
+    });
+    this._preferenceText.anchor.set(0.5);
+    this._preferenceText.visible = false;
+    this.addChild(this._preferenceText);
+
+    // Drink glass visual (shows during DRINKING with depleting fill)
+    this._drinkGlass = new Graphics();
+    this._drinkGlass.visible = false;
+    this.addChild(this._drinkGlass);
+
+    // Trait icons (small row above guest)
+    this._traitIcons = new Text({
+      text: "",
+      style: { fontSize: 10 },
+    });
+    this._traitIcons.anchor.set(0.5);
+    this._traitIcons.visible = false;
+    this.addChild(this._traitIcons);
   }
 
   update(_delta: Ticker, state: IGuestStateData) {
@@ -81,24 +139,19 @@ export class GuestView extends Container {
     const size = tileSize * 0.75;
     const r = size / 2;
 
-    // Interpolate position
-    const pixelX = lerp(state.gridX, state.targetX, state.moveProgress) * tileSize + tileSize / 2;
-    const pixelY = lerp(state.gridY, state.targetY, state.moveProgress) * tileSize + tileSize / 2;
-
-    // Offset seated guests so they don't stack on the same tile
-    let seatOffX = 0;
-    let seatOffY = 0;
-    const isSeated = state.status !== EGuestStatus.WALKING_TO_SEAT && state.status !== EGuestStatus.LEAVING;
-    if (isSeated && state.seatIndex >= 0) {
-      const off = tileSize * 0.3;
-      const offsets = [[-off, -off], [off, -off], [-off, off], [off, off]];
-      const [ox, oy] = offsets[state.seatIndex % offsets.length];
-      seatOffX = ox;
-      seatOffY = oy;
+    // Smooth client-side interpolation toward server position
+    const targetPixelX = lerp(state.gridX, state.targetX, state.moveProgress) * tileSize + tileSize / 2;
+    const targetPixelY = lerp(state.gridY, state.targetY, state.moveProgress) * tileSize + tileSize / 2;
+    if (this._displayX < 0) {
+      this._displayX = targetPixelX;
+      this._displayY = targetPixelY;
+    } else {
+      const smoothing = 0.25;
+      this._displayX = lerp(this._displayX, targetPixelX, smoothing);
+      this._displayY = lerp(this._displayY, targetPixelY, smoothing);
     }
-
-    this.x = pixelX + seatOffX;
-    this.y = pixelY + seatOffY;
+    this.x = this._displayX;
+    this.y = this._displayY;
 
     // Tint body based on drunkenness (sober → flushed red)
     const drunk = Math.min(1, state.drunkenness);
@@ -115,20 +168,21 @@ export class GuestView extends Container {
     // Status icon
     this._statusIcon.text = STATUS_ICONS[state.status] ?? "";
 
-    // Order bubble — show during READY_TO_ORDER and WAITING_FOR_ORDER
+    // Order bubble — show during READY_TO_ORDER, QUEUED, and WAITING_FOR_ORDER
     const showOrder =
       state.status === EGuestStatus.READY_TO_ORDER ||
+      state.status === EGuestStatus.QUEUED ||
       state.status === EGuestStatus.WAITING_FOR_ORDER;
 
     if (showOrder) {
       let label: string;
       let pillColor: number;
-      if (state.status === EGuestStatus.READY_TO_ORDER) {
+      if (state.status === EGuestStatus.READY_TO_ORDER || state.status === EGuestStatus.QUEUED) {
         label = "Order?";
         pillColor = 0x888888;
       } else {
         const drinkKey = state.order?.drinkKey ?? "";
-        label = drinkKey ? drinkKey.toUpperCase() : "?";
+        label = ITEM_DISPLAY[drinkKey]?.label ?? drinkKey.toUpperCase();
         pillColor = ITEM_DISPLAY[drinkKey]?.color ?? 0x888888;
       }
 
@@ -138,7 +192,7 @@ export class GuestView extends Container {
       // Background pill (color-coded by drink)
       const pillW = Math.max(40, this._orderBubbleText.width + 10);
       const pillH = 18;
-      const pillY = -r - 39;
+      const pillY = -r - 25;
       this._orderBubbleBg.clear();
       this._orderBubbleBg.roundRect(-pillW / 2, pillY, pillW, pillH, 4).fill(pillColor);
       this._orderBubbleBg.visible = true;
@@ -176,6 +230,81 @@ export class GuestView extends Container {
         .fill(drinkBarColor);
     } else {
       this._drinkProgressBar.visible = false;
+    }
+
+    // Drink glass visual — sits on the bar/table tile (appliance position)
+    if (state.status === EGuestStatus.DRINKING && state.drinkProgress > 0) {
+      const drinkColor = ITEM_DISPLAY[state.order?.drinkKey ?? ""]?.color ?? 0x4ecdc4;
+      const gw = 8;
+      const gh = 14;
+      // Offset from guest position to the seat appliance center
+      const offsetX = (state.seatApplianceGridX - state.gridX) * tileSize;
+      const offsetY = (state.seatApplianceGridY - state.gridY) * tileSize;
+      const gx = offsetX - gw / 2;
+      const gy = offsetY - gh / 2;
+      const fillRatio = 1 - state.drinkProgress;
+
+      this._drinkGlass.clear();
+      // Glass outline
+      this._drinkGlass.roundRect(gx, gy, gw, gh, 2).fill(0x222222);
+      // Fill from bottom
+      const fillH = Math.max(0, (gh - 2) * fillRatio);
+      if (fillH > 0) {
+        this._drinkGlass.rect(gx + 1, gy + gh - 1 - fillH, gw - 2, fillH).fill(drinkColor);
+      }
+      // Glass rim highlight
+      this._drinkGlass.rect(gx, gy, gw, 1).fill(0x666666);
+      this._drinkGlass.visible = true;
+    } else {
+      this._drinkGlass.visible = false;
+    }
+
+    // Chat bubble — show briefly when chatCount increases
+    const dt = 1 / 60; // approximate frame dt
+    if (state.chatCount > this._lastChatCount) {
+      this._chatBubbleTimer = 1.5; // show for 1.5 seconds
+      this._lastChatCount = state.chatCount;
+    }
+    if (this._chatBubbleTimer > 0) {
+      this._chatBubbleTimer -= dt;
+      this._chatBubble.visible = true;
+      this._chatBubble.alpha = Math.min(1, this._chatBubbleTimer / 0.3); // fade out
+    } else {
+      this._chatBubble.visible = false;
+    }
+
+    // Preference indicator — show below drink bar when revealed
+    if (state.preferenceRevealed && state.preferredDrink) {
+      const prefDisplay = ITEM_DISPLAY[state.preferredDrink];
+      if (prefDisplay) {
+        const prefLabel = `♥ ${prefDisplay.label}`;
+        this._preferenceText.text = prefLabel;
+        this._preferenceText.visible = true;
+
+        const prefW = Math.max(36, this._preferenceText.width + 8);
+        const prefH = 14;
+        const prefY = r + 17;
+        this._preferenceBubbleBg.clear();
+        this._preferenceBubbleBg.roundRect(-prefW / 2, prefY, prefW, prefH, 3).fill(prefDisplay.color);
+        this._preferenceBubbleBg.visible = true;
+        this._preferenceText.y = prefY + prefH / 2;
+      }
+    } else {
+      this._preferenceText.visible = false;
+      this._preferenceBubbleBg.visible = false;
+    }
+
+    // Trait icons — show revealed traits as small emoji row
+    if (state.revealedTraits && state.revealedTraits.length > 0) {
+      const icons = state.revealedTraits
+        .map((t) => TRAIT_DISPLAY[t as EGuestTrait]?.icon ?? "")
+        .filter(Boolean)
+        .join(" ");
+      this._traitIcons.text = icons;
+      this._traitIcons.y = -r - 8;
+      this._traitIcons.visible = true;
+    } else {
+      this._traitIcons.visible = false;
     }
   }
 }

@@ -3,10 +3,26 @@ import { computed } from "vue";
 import { store } from "../../store/global";
 
 const ITEM_NAMES: Record<string, string> = {
-  empty_glass: "Glass",
-  beer: "Beer",
-  dram: "Dram",
+  pint_glass: "Pint Glass",
+  shot_glass: "Shot Glass",
+  stem_glass: "Stem Glass",
+  highball_glass: "Highball Glass",
+  pilsner: "Pilsner",
+  lager: "Lager",
+  ale: "Ale",
+  ipa: "IPA",
+  merlot: "Merlot",
+  chardonnay: "Chardonnay",
+  pinot_noir: "Pinot Noir",
+  rose: "Ros\u00e9",
+  whiskey: "Whiskey",
+  vodka: "Vodka",
+  gin: "Gin",
+  rum: "Rum",
+  highball: "Highball",
   dirty_glass: "Dirty Glass",
+  cut_off_card: "Cut Off Card",
+  trash_bag: "Trash Bag",
 };
 
 const formattedTimer = computed(() => {
@@ -57,6 +73,10 @@ const heldItemName = computed(() => {
     </div>
     <div class="hud-divider"></div>
     <div class="hud-money">${{ store.money }}</div>
+    <div class="hud-rep" :class="{ 'rep-pos': store.reputation > 0, 'rep-neg': store.reputation < 0 }">
+      {{ store.reputation >= 0 ? '+' : '' }}{{ store.reputation }}
+    </div>
+    <div class="hud-divider"></div>
     <div class="hud-phase" :style="{ color: phaseColor }">
       {{ phaseLabel }}
     </div>
@@ -108,6 +128,13 @@ const heldItemName = computed(() => {
   font-size: 1.5rem;
   font-weight: bold;
   color: #ffd93d;
+}
+.hud-rep {
+  font-size: 0.9rem;
+  font-weight: bold;
+  color: #888;
+  &.rep-pos { color: #44cc44; }
+  &.rep-neg { color: #ff4444; }
 }
 .hud-phase {
   font-size: 1.1rem;

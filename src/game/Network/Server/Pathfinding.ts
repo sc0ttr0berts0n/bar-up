@@ -23,6 +23,7 @@ export class Pathfinding {
     endX: number,
     endY: number,
     isGuest: boolean,
+    blockedTiles?: Set<string>,
   ): Vec2[] {
     if (startX === endX && startY === endY) return [];
 
@@ -86,9 +87,11 @@ export class Pathfinding {
         if (closed.has(nKey)) continue;
 
         // Allow walking to the end tile even if it has an appliance (for guests going to seats)
-        const walkable =
-          (nx === endX && ny === endY) || isWalkable(nx, ny);
+        const isDestination = nx === endX && ny === endY;
+        const walkable = isDestination || isWalkable(nx, ny);
         if (!walkable) continue;
+        // Collision: blocked tiles are unwalkable unless it's the destination
+        if (!isDestination && blockedTiles?.has(nKey)) continue;
 
         const g = current.g + 1;
         const h = heuristic(nx, ny);

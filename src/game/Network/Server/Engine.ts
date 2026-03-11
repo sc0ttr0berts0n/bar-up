@@ -1,9 +1,9 @@
 import { DEFAULT_BAR_LAYOUT, type IBarLayout } from "../../Shared/BarLayout";
-import { EApplianceType } from "../../Shared/ApplianceTypes";
-import { EItemType } from "../../Shared/ItemTypes";
-import { EDirection } from "../../Shared/TileTypes";
-import { RECIPES, getMenuDrinkKeys } from "../../Shared/DrinkRecipes";
-import { EGuestStatus } from "../../Shared/GuestTypes";
+import { EApplianceType, SEAT_OFFSETS } from "../../Shared/ApplianceTypes";
+import { EItemType, GLASS_TYPES } from "../../Shared/ItemTypes";
+import { EDirection, ETileZone } from "../../Shared/TileTypes";
+import { RECIPES, getMenuDrinkKeys, APPLIANCE_VARIANTS, GRAB_VARIANTS } from "../../Shared/DrinkRecipes";
+import { EGuestStatus, EGuestTrait } from "../../Shared/GuestTypes";
 import GameSettings from "../../Shared/GameSettings";
 import { Random } from "../../Utils/Random";
 import type { Vec2 } from "../../../types/Vec2";
@@ -30,8 +30,16 @@ export class Engine {
   private _guestSpawner: GuestSpawner;
   private _shiftManager: ShiftManager;
   private _money: number;
+  private _messes: Set<string> = new Set();
   private _events: IEngineEvent[] = [];
   private _eventCounter: number = 0;
+  private _policeAttention: number = 0;
+  private _reputation: number = 0;
+  private _shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0 };
+  private _menuConfig: Map<string, { enabled: boolean; price: number }> = new Map();
+  private _barQueue: Appliance | null = null;
+  private _queueSlots: { position: Vec2; guestId: string | null }[] = [];
+  private _occupiedTiles: Set<string> = new Set();
 
   constructor(game: Game) {
     this._game = game;
@@ -55,10 +63,27 @@ export class Engine {
       }
     }
 
+    // Find bar queue appliance and initialize queue slots
+    for (const a of this._appliances.values()) {
+      if (a.type === EApplianceType.BAR_QUEUE) {
+        this._barQueue = a;
+        break;
+      }
+    }
+    this._queueSlots = this._layout.queueSlots.map((pos) => ({
+      position: { ...pos },
+      guestId: null,
+    }));
+
     // Create bartender slots
     for (let i = 0; i < GameSettings.maxPlayers; i++) {
       const spawn = this._layout.playerSpawns[i];
       this._bartenders.push(new Bartender(i, spawn.x, spawn.y));
+    }
+
+    // Initialize menu config from recipes (all enabled at default price)
+    for (const [key, recipe] of Object.entries(RECIPES)) {
+      this._menuConfig.set(key, { enabled: true, price: recipe.menuPrice });
     }
 
     // Set up spawner and shift manager
@@ -67,6 +92,12 @@ export class Engine {
     this._shiftManager.onPhaseChange = (phase) => {
       this._guestSpawner.enabled = phase === "service";
       this._pushEvent(EEngineEventType.SHIFT_CHANGE, { phase });
+      if (phase === "service") {
+        this._shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0 };
+      }
+      if (phase === "prep") {
+        this._pushEvent(EEngineEventType.SHIFT_SUMMARY, { ...this._shiftStats });
+      }
     };
     // Start with service phase active
     this._guestSpawner.enabled = true;
@@ -93,14 +124,57 @@ export class Engine {
   get money() {
     return this._money;
   }
+  get messes(): { x: number; y: number }[] {
+    return [...this._messes].map((key) => {
+      const [x, y] = key.split(",").map(Number);
+      return { x, y };
+    });
+  }
   get shiftManager() {
     return this._shiftManager;
+  }
+  get reputation() {
+    return this._reputation;
+  }
+  get shiftStats() {
+    return this._shiftStats;
+  }
+  get menuConfig(): { drinkKey: string; enabled: boolean; price: number }[] {
+    return [...this._menuConfig.entries()].map(([drinkKey, cfg]) => ({
+      drinkKey,
+      enabled: cfg.enabled,
+      price: cfg.price,
+    }));
   }
   get events() {
     return this._events;
   }
   set events(val: IEngineEvent[]) {
     this._events = val;
+  }
+
+  /** Called from ClientPacketHandler when a player updates menu settings */
+  setMenuDrink(drinkKey: string, enabled: boolean, price: number) {
+    if (!RECIPES[drinkKey]) return;
+    this._menuConfig.set(drinkKey, { enabled, price: Math.max(1, Math.round(price)) });
+  }
+
+  /** Called from ClientPacketHandler when a player restocks an appliance */
+  restockAppliance(applianceId: string) {
+    const appliance = this._appliances.get(applianceId);
+    if (!appliance) return;
+    if (appliance.maxStock === 0) return;
+    if (appliance.currentStock >= appliance.maxStock) return;
+    if (this._money < appliance.restockCost) return;
+    this._money -= appliance.restockCost;
+    appliance.restock();
+  }
+
+  /** Get enabled drink keys for ordering */
+  getEnabledDrinkKeys(): string[] {
+    return [...this._menuConfig.entries()]
+      .filter(([, cfg]) => cfg.enabled)
+      .map(([key]) => key);
   }
 
   getBartenderByNumber(num: number): Bartender | undefined {
@@ -139,42 +213,156 @@ export class Engine {
     bartender.setMoveDirection(null);
   }
 
-  /** Called from ClientPacketHandler when a player presses interact */
+  /** Called from ClientPacketHandler when a player presses Space (action) */
   bartenderInteract(uuid: string) {
     const bartender = this.getBartenderById(uuid);
     if (!bartender || bartender.isMoving || bartender.isInteracting) return;
 
     bartender.startInteract();
 
-    // Determine what we're interacting with
     const facingTile = this._getFacingTile(bartender);
     if (!facingTile) return;
 
-    // Check for guest interaction (take order / serve drink)
+    // Guest interactions (order, serve, chat, cut-off)
     const guest = this._getGuestAtOrNear(facingTile.x, facingTile.y);
     if (guest) {
       this._handleGuestInteraction(bartender, guest);
       return;
     }
 
-    // Check for appliance interaction
+    // Appliance crafting (transform held item, NOT pickup)
     const applianceId = facingTile.applianceId;
     if (applianceId) {
       const appliance = this._appliances.get(applianceId);
       if (appliance) {
-        this._handleApplianceInteraction(bartender, appliance);
+        this._handleCraftInteraction(bartender, appliance);
         return;
       }
     }
 
-    // Also check the tile the bartender is standing on (for counter interactions)
+    // Mess cleanup
+    const messKey = `${facingTile.x},${facingTile.y}`;
+    if (this._messes.has(messKey)) {
+      this._messes.delete(messKey);
+      return;
+    }
+
+    // Also check standing tile for appliance crafting
     const standingTile = this._tileGrid.getTile(bartender.gridX, bartender.gridY);
     if (standingTile?.applianceId) {
       const appliance = this._appliances.get(standingTile.applianceId);
       if (appliance) {
-        this._handleApplianceInteraction(bartender, appliance);
+        this._handleCraftInteraction(bartender, appliance);
       }
     }
+  }
+
+  /** Called from ClientPacketHandler when a player presses E (grab/drop) */
+  bartenderGrab(uuid: string) {
+    const bartender = this.getBartenderById(uuid);
+    if (!bartender || bartender.isMoving || bartender.isInteracting) return;
+
+    bartender.startInteract();
+
+    const facingTile = this._getFacingTile(bartender);
+    if (!facingTile) return;
+
+    const heldItem = bartender.heldItemId
+      ? this._items.get(bartender.heldItemId) ?? null
+      : null;
+
+    // Trash bag dump at entrance
+    if (facingTile.zone === ETileZone.ENTRANCE) {
+      if (heldItem?.type === EItemType.TRASH_BAG) {
+        this._items.delete(heldItem.id);
+        bartender.setHeldItem(null, null);
+        return;
+      }
+    }
+
+    // Appliance grab/drop
+    const applianceId = facingTile.applianceId;
+    if (applianceId) {
+      const appliance = this._appliances.get(applianceId);
+      if (appliance) {
+        this._handleGrabInteraction(bartender, appliance, heldItem);
+        return;
+      }
+    }
+
+    // Also check standing tile
+    const standingTile = this._tileGrid.getTile(bartender.gridX, bartender.gridY);
+    if (standingTile?.applianceId) {
+      const appliance = this._appliances.get(standingTile.applianceId);
+      if (appliance) {
+        this._handleGrabInteraction(bartender, appliance, heldItem);
+      }
+    }
+  }
+
+  /** Called from ClientPacketHandler when a player selects a variant from the sub-menu */
+  bartenderSelect(uuid: string, variantIndex: number) {
+    const bartender = this.getBartenderById(uuid);
+    if (!bartender || bartender.isMoving || bartender.isInteracting) return;
+
+    bartender.startInteract();
+
+    const heldItem = bartender.heldItemId
+      ? this._items.get(bartender.heldItemId) ?? null
+      : null;
+    const facingTile = this._getFacingTile(bartender);
+
+    if (heldItem) {
+      // Craft mode: transform held glass into a drink at a variant appliance
+      const appliance = this._findApplianceWith(facingTile, bartender, APPLIANCE_VARIANTS);
+      if (!appliance) return;
+      if (!appliance.hasStock()) return; // out of stock
+      const variantConfig = APPLIANCE_VARIANTS[appliance.type];
+      if (!variantConfig) return;
+      if (!variantConfig.requiredItems.includes(heldItem.type)) return;
+      if (variantIndex < 0 || variantIndex >= variantConfig.variants.length) return;
+
+      const variant = variantConfig.variants[variantIndex];
+      heldItem.setType(variant.type);
+      bartender.setHeldItem(heldItem.id, heldItem.type);
+      appliance.depleteStock();
+      this._pushEvent(EEngineEventType.ITEM_CRAFTED, {
+        itemType: variant.type,
+        playerId: bartender.id,
+      });
+    } else {
+      // Grab mode: pick up a new item from a grab appliance (e.g. glass shelf)
+      const appliance = this._findApplianceWith(facingTile, bartender, GRAB_VARIANTS);
+      if (!appliance) return;
+      if (!appliance.hasStock()) return; // out of stock
+      const grabConfig = GRAB_VARIANTS[appliance.type];
+      if (!grabConfig) return;
+      if (variantIndex < 0 || variantIndex >= grabConfig.variants.length) return;
+
+      const variant = grabConfig.variants[variantIndex];
+      const item = new Item(variant.type);
+      item.pickUp(bartender.id!);
+      this._items.set(item.id, item);
+      bartender.setHeldItem(item.id, item.type);
+      appliance.depleteStock();
+    }
+  }
+
+  private _findApplianceWith(
+    facingTile: ReturnType<typeof this._getFacingTile>,
+    bartender: Bartender,
+    configMap: Partial<Record<EApplianceType, unknown>>,
+  ): Appliance | null {
+    if (facingTile?.applianceId) {
+      const app = this._appliances.get(facingTile.applianceId);
+      if (app && configMap[app.type]) return app;
+    }
+    const standingTile = this._tileGrid.getTile(bartender.gridX, bartender.gridY);
+    if (standingTile?.applianceId) {
+      const app = this._appliances.get(standingTile.applianceId);
+      if (app && configMap[app.type]) return app;
+    }
+    return null;
   }
 
   private _getFacingTile(bartender: Bartender) {
@@ -205,24 +393,62 @@ export class Engine {
       if (guest.seatApplianceId) {
         const appliance = this._appliances.get(guest.seatApplianceId);
         if (appliance && appliance.gridX === x && appliance.gridY === y) {
-          // Return the first guest at this appliance that needs service
+          // Return the first guest at this appliance that needs interaction
           if (
             guest.status === EGuestStatus.READY_TO_ORDER ||
-            guest.status === EGuestStatus.WAITING_FOR_ORDER
+            guest.status === EGuestStatus.WAITING_FOR_ORDER ||
+            guest.status === EGuestStatus.DRINKING ||
+            guest.status === EGuestStatus.FIGHTING ||
+            guest.status === EGuestStatus.SLIPPED
           ) {
             return guest;
           }
         }
       }
     }
+
+    // Check for queued guests at bar queue: if facing tile belongs to BAR_QUEUE,
+    // look one tile south (y+1) for QUEUED or WAITING_FOR_ORDER guests
+    const tile = this._tileGrid.getTile(x, y);
+    if (tile?.applianceId && this._barQueue && tile.applianceId === this._barQueue.id) {
+      for (const guest of this._guests.values()) {
+        if (guest.gridX === x && guest.gridY === y + 1) {
+          if (guest.status === EGuestStatus.QUEUED || guest.status === EGuestStatus.WAITING_FOR_ORDER) {
+            return guest;
+          }
+        }
+      }
+    }
+
     return null;
   }
 
   private _handleGuestInteraction(bartender: Bartender, guest: Guest) {
-    if (guest.status === EGuestStatus.READY_TO_ORDER) {
-      // Take the order
-      const drinkKeys = getMenuDrinkKeys();
-      const drinkKey = Random.pickOne(drinkKeys);
+    // Cut-off card: refuse service / kick out
+    const heldForCutOff = bartender.heldItemId
+      ? this._items.get(bartender.heldItemId)
+      : null;
+    if (heldForCutOff?.type === EItemType.CUT_OFF_CARD) {
+      // Guest leaves with happiness penalty (less if very drunk)
+      const penalty = Math.max(5, 15 - guest.drunkenness * 10);
+      guest.adjustHappiness(-penalty);
+      guest.setStatus(EGuestStatus.LEAVING);
+      // Consume the card
+      this._items.delete(heldForCutOff.id);
+      bartender.setHeldItem(null, null);
+      return;
+    }
+
+    if (guest.status === EGuestStatus.READY_TO_ORDER || guest.status === EGuestStatus.QUEUED) {
+      // Take the order — only from enabled menu items
+      const drinkKeys = this.getEnabledDrinkKeys();
+      if (drinkKeys.length === 0) return; // nothing on menu
+      let drinkKey: string;
+      if (guest.preferredDrink && drinkKeys.includes(guest.preferredDrink)) {
+        drinkKey = guest.preferredDrink;
+      } else {
+        drinkKey = Random.pickOne(drinkKeys);
+      }
       guest.setOrder({ drinkKey });
       guest.setStatus(EGuestStatus.WAITING_FOR_ORDER);
       return;
@@ -236,89 +462,435 @@ export class Engine {
 
       if (!heldItem) return;
 
-      // Check if held item matches the order
+      // Check if held item matches the order (exact type match)
       const recipe = RECIPES[guest.order.drinkKey];
       if (!recipe) return;
 
       if (heldItem.type === recipe.resultType) {
         // Serve the drink!
-        guest.setStatus(EGuestStatus.DRINKING);
+        const isTableGuest = !this.isCounterGuest(guest);
         guest.adjustHappiness(GameSettings.happinessServeBonus);
 
-        // Remove the item from player's hands, turn it into a dirty glass
-        // (in real game the guest would hold it; for prototype just delete)
-        this._items.delete(heldItem.id);
-        bartender.setHeldItem(null, null);
+        // Bonus happiness if drink matches preference
+        if (guest.preferredDrink === guest.order.drinkKey) {
+          guest.adjustHappiness(GameSettings.preferredDrinkBonus);
+        }
 
-        // Earn money
-        this._money += recipe.menuPrice;
+        // Overserve detection: serving a drink to a very drunk guest
+        if (guest.drunkenness >= GameSettings.overserveDrunkennessThreshold) {
+          this._messes.add(`${guest.gridX},${guest.gridY}`);
+          this._policeAttention++;
+          this._shiftStats.overserves++;
+          this._reputation += GameSettings.overserveReputationPenalty;
+          this._shiftStats.reputationChange += GameSettings.overserveReputationPenalty;
+          this._pushEvent(EEngineEventType.GUEST_OVERSERVED, {
+            guestId: guest.id,
+          });
+        }
+
+        if (isTableGuest) {
+          // Table guest: send back to seat with drink, delete the item
+          this._items.delete(heldItem.id);
+          bartender.setHeldItem(null, null);
+          this.sendGuestBackToSeat(guest);
+        } else {
+          // Counter guest: place drink on counter as before, start drinking
+          guest.setStatus(EGuestStatus.DRINKING);
+          const seatAppliance = guest.seatApplianceId
+            ? this._appliances.get(guest.seatApplianceId)
+            : null;
+          if (seatAppliance && seatAppliance.hasOpenSlot()) {
+            const slot = seatAppliance.getFirstOpenSlotIndex();
+            heldItem.placeOnAppliance(seatAppliance.id, slot);
+            seatAppliance.setSlot(slot, heldItem.id);
+          } else {
+            this._items.delete(heldItem.id);
+          }
+          bartender.setHeldItem(null, null);
+        }
+
+        // IMPATIENT fast-serve bonus (served within 10 seconds of ordering)
+        if (guest.hasTrait(EGuestTrait.IMPATIENT) && guest.state.statusTimer < 10) {
+          guest.adjustHappiness(GameSettings.impatientFastServeBonus);
+        }
+
+        // Earn money (use configured price, HIGHROLLER tips more)
+        const menuEntry = this._menuConfig.get(guest.order.drinkKey);
+        let earnings = menuEntry?.price ?? recipe.menuPrice;
+        if (guest.hasTrait(EGuestTrait.HIGHROLLER)) {
+          earnings = Math.round(earnings * GameSettings.highrollerTipMultiplier);
+        }
+        this._money += earnings;
+        this._shiftStats.moneyEarned += earnings;
+        this._shiftStats.guestsServed++;
         this._pushEvent(EEngineEventType.DRINK_SERVED, {
           guestId: guest.id,
           drinkKey: guest.order.drinkKey,
-          money: recipe.menuPrice,
+          money: earnings,
         });
         this._pushEvent(EEngineEventType.MONEY_EARNED, {
-          amount: recipe.menuPrice,
+          amount: earnings,
           x: guest.gridX,
           y: guest.gridY,
         });
+      }
+      return;
+    }
 
-        guest.clearOrder();
+    if (guest.status === EGuestStatus.FIGHTING) {
+      // Resolve the fight — guest leaves
+      guest.setStatus(EGuestStatus.LEAVING);
+      this._pushEvent(EEngineEventType.BAR_FIGHT_RESOLVED, { guestId: guest.id });
+      return;
+    }
+
+    if (guest.status === EGuestStatus.SLIPPED) {
+      // Help guest up — back to DECIDING
+      guest.setStatus(EGuestStatus.DECIDING);
+      this._pushEvent(EEngineEventType.GUEST_HELPED_UP, { guestId: guest.id });
+      return;
+    }
+
+    if (guest.status === EGuestStatus.DRINKING) {
+      // Chat with guest (only if bartender is empty-handed)
+      if (!bartender.heldItemId) {
+        guest.chat();
       }
     }
   }
 
-  private _handleApplianceInteraction(bartender: Bartender, appliance: Appliance) {
+  /** Action button — craft/transform items at appliances (no pickup) */
+  private _handleCraftInteraction(bartender: Bartender, appliance: Appliance) {
     const heldItem = bartender.heldItemId
       ? this._items.get(bartender.heldItemId) ?? null
       : null;
 
+    // Crafting only works when holding something
+    if (!heldItem) return;
+
     const result = DrinkCrafter.resolveInteraction(heldItem, appliance);
 
-    if (result.pickUpNewItem && result.newItemType !== null) {
-      // Create new item and give to player
-      const item = new Item(result.newItemType);
-      item.pickUp(bartender.id!);
-      this._items.set(item.id, item);
-      bartender.setHeldItem(item.id, item.type);
-      this._pushEvent(EEngineEventType.ITEM_PICKED_UP, {
-        itemType: result.newItemType,
-        playerId: bartender.id,
-      });
-    } else if (result.newItemType !== null && heldItem) {
+    if (result.consumed) {
+      // Consumed — remove the item entirely (e.g. dirty glass washed at sink)
+      this._items.delete(heldItem.id);
+      bartender.setHeldItem(null, null);
+    } else if (result.newItemType !== null) {
+      if (!appliance.hasStock()) return; // out of stock
       // Transform the held item
       heldItem.setType(result.newItemType);
       bartender.setHeldItem(heldItem.id, heldItem.type);
+      appliance.depleteStock();
       this._pushEvent(EEngineEventType.ITEM_CRAFTED, {
         itemType: result.newItemType,
         playerId: bartender.id,
       });
-    } else if (result.consumed && heldItem) {
-      // Destroy the held item
+    }
+  }
+
+  /** Grab button — pick up / put down / bin / source appliances */
+  private _handleGrabInteraction(bartender: Bartender, appliance: Appliance, heldItem: Item | null) {
+    const appType = appliance.type;
+
+    // Bin handling
+    if (appType === EApplianceType.BIN) {
+      if (heldItem && heldItem.type !== EItemType.TRASH_BAG) {
+        // Toss held item into bin (if room)
+        if (appliance.hasOpenSlot()) {
+          const slot = appliance.getFirstOpenSlotIndex();
+          this._items.delete(heldItem.id);
+          appliance.setSlot(slot, "trash");
+          bartender.setHeldItem(null, null);
+        }
+      } else if (!heldItem && appliance.hasAnyItem()) {
+        // Pick up trash bag
+        appliance.clearSlots();
+        const bag = new Item(EItemType.TRASH_BAG);
+        bag.pickUp(bartender.id!);
+        this._items.set(bag.id, bag);
+        bartender.setHeldItem(bag.id, bag.type);
+      }
+      return;
+    }
+
+    // Source appliances — pick up new items (empty-handed only)
+    if (!heldItem) {
+      // Glass shelf is handled by sub-menu (bartenderSelect), skip here
+      if (appType === EApplianceType.CARD_HOLDER) {
+        const item = new Item(EItemType.CUT_OFF_CARD);
+        item.pickUp(bartender.id!);
+        this._items.set(item.id, item);
+        bartender.setHeldItem(item.id, item.type);
+        return;
+      }
+      // Pick up first item from a surface with items (counter, service bar)
+      if (appliance.hasAnyItem()) {
+        // Find the first occupied slot
+        const slots = appliance.state.slots;
+        for (let i = 0; i < slots.length; i++) {
+          if (slots[i] !== null) {
+            const existingItem = this._items.get(slots[i]!);
+            if (existingItem) {
+              existingItem.pickUp(bartender.id!);
+              appliance.setSlot(i, null);
+              bartender.setHeldItem(existingItem.id, existingItem.type);
+              return;
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    // Holding an item — put down on surfaces
+    // Return to source: any glass → glass shelf, card → card holder
+    if (GLASS_TYPES.has(heldItem.type) && appType === EApplianceType.GLASS_SHELF) {
       this._items.delete(heldItem.id);
+      bartender.setHeldItem(null, null);
+      return;
+    }
+    if (heldItem.type === EItemType.CUT_OFF_CARD && appType === EApplianceType.CARD_HOLDER) {
+      this._items.delete(heldItem.id);
+      bartender.setHeldItem(null, null);
+      return;
+    }
+
+    // Put down on any surface with open slots (counter, service bar, bar queue)
+    if (
+      (appType === EApplianceType.COUNTER || appType === EApplianceType.SERVICE_BAR || appType === EApplianceType.BAR_QUEUE) &&
+      appliance.hasOpenSlot()
+    ) {
+      const slot = appliance.getFirstOpenSlotIndex();
+      heldItem.placeOnAppliance(appliance.id, slot);
+      appliance.setSlot(slot, heldItem.id);
       bartender.setHeldItem(null, null);
     }
   }
 
-  /** Find an available seat across all seating appliances */
-  findAvailableSeat(): { applianceId: string; seatIndex: number } | null {
-    for (const appliance of this._appliances.values()) {
-      if (appliance.maxSeats > 0 && appliance.hasOpenSeat()) {
-        return {
-          applianceId: appliance.id,
-          seatIndex: appliance.getFirstOpenSeatIndex(),
-        };
-      }
+  /** Find group seating for a party of the given size.
+   *  Returns array of seat assignments or null if no group seating available. */
+  findGroupSeating(partySize: number): { applianceId: string; seatIndex: number }[] | null {
+    if (partySize <= GameSettings.counterPreferMaxPartySize) {
+      return this._tryCounterSeating(partySize) ?? this._tryTableSeating(partySize);
     }
-    return null;
+    return this._tryTableSeating(partySize) ?? this._tryCounterSeating(partySize);
   }
 
-  /** Pathfind a guest from entrance to near their seat appliance */
-  pathfindGuestToSeat(guest: Guest, applianceId: string): Vec2[] {
+  /** Try to find N contiguous open counter seats along the bar */
+  private _tryCounterSeating(n: number): { applianceId: string; seatIndex: number }[] | null {
+    const counters: Appliance[] = [];
+    for (const a of this._appliances.values()) {
+      if (a.type === EApplianceType.COUNTER && a.gridY === 3) {
+        counters.push(a);
+      }
+    }
+    counters.sort((a, b) => a.gridX - b.gridX);
+    if (counters.length < n) return null;
+
+    // Collect all valid contiguous windows, then pick one randomly
+    const validWindows: number[] = [];
+    for (let i = 0; i <= counters.length - n; i++) {
+      let contiguous = true;
+      for (let j = 1; j < n; j++) {
+        if (counters[i + j].gridX !== counters[i].gridX + j) {
+          contiguous = false;
+          break;
+        }
+      }
+      if (!contiguous) continue;
+
+      let allOpen = true;
+      for (let j = 0; j < n; j++) {
+        if (!counters[i + j].hasOpenSeat()) {
+          allOpen = false;
+          break;
+        }
+      }
+      if (!allOpen) continue;
+
+      validWindows.push(i);
+    }
+
+    if (validWindows.length === 0) return null;
+    const chosen = validWindows[Math.floor(Math.random() * validWindows.length)];
+    return counters.slice(chosen, chosen + n).map((c) => ({
+      applianceId: c.id,
+      seatIndex: c.getFirstOpenSeatIndex(),
+    }));
+  }
+
+  /** Try to find a table/hightop with enough open seats */
+  private _tryTableSeating(n: number): { applianceId: string; seatIndex: number }[] | null {
+    let bestAppliance: Appliance | null = null;
+    let bestOpenCount = Infinity;
+
+    for (const a of this._appliances.values()) {
+      if (a.type !== EApplianceType.HIGHTOP && a.type !== EApplianceType.TABLE) continue;
+      const openCount = a.getOpenSeatCount();
+      if (openCount < n) continue;
+      if (openCount < bestOpenCount) {
+        bestAppliance = a;
+        bestOpenCount = openCount;
+      }
+    }
+
+    if (!bestAppliance) return null;
+    const indices = bestAppliance.getOpenSeatIndices().slice(0, n);
+    return indices.map((seatIndex) => ({
+      applianceId: bestAppliance!.id,
+      seatIndex,
+    }));
+  }
+
+  /** Check if a guest is seated at the bar counter (vs table/hightop) */
+  isCounterGuest(guest: Guest): boolean {
+    if (!guest.seatApplianceId) return false;
+    const appliance = this._appliances.get(guest.seatApplianceId);
+    return appliance?.type === EApplianceType.COUNTER;
+  }
+
+  /** Assign a queue slot to a guest. Returns slot index or -1 if queue is full. */
+  assignQueueSlot(guest: Guest): number {
+    for (let i = 0; i < this._queueSlots.length; i++) {
+      if (this._queueSlots[i].guestId === null) {
+        this._queueSlots[i].guestId = guest.id;
+        guest.setQueuePosition(i);
+        // Pathfind guest to the queue slot position
+        // (WALKING_TO_QUEUE guests phase through collision, so no blockedTiles needed)
+        const pos = this._queueSlots[i].position;
+        const path = Pathfinding.findPath(
+          this._tileGrid,
+          guest.gridX,
+          guest.gridY,
+          pos.x,
+          pos.y,
+          true,
+        );
+        guest.setPath(path);
+        return i;
+      }
+    }
+    return -1; // queue full
+  }
+
+  /** Free a queue slot and shift guests forward */
+  freeQueueSlot(guestId: string) {
+    const slotIdx = this._queueSlots.findIndex((s) => s.guestId === guestId);
+    if (slotIdx < 0) return;
+    this._queueSlots[slotIdx].guestId = null;
+
+    // Find the guest and clear their queue position
+    const guest = this._guests.get(guestId);
+    if (guest) guest.setQueuePosition(-1);
+
+    // Shift guests forward to fill gaps — move QUEUED and WAITING_FOR_ORDER guests
+    for (let i = slotIdx + 1; i < this._queueSlots.length; i++) {
+      const behindId = this._queueSlots[i].guestId;
+      if (!behindId) continue;
+      const behindGuest = this._guests.get(behindId);
+      if (!behindGuest) continue;
+      // Only shift guests already at their position, not still walking
+      if (behindGuest.status !== EGuestStatus.QUEUED && behindGuest.status !== EGuestStatus.WAITING_FOR_ORDER) continue;
+
+      // Find first open slot before this one
+      for (let j = 0; j < i; j++) {
+        if (this._queueSlots[j].guestId === null) {
+          // Move guest to earlier slot
+          this._queueSlots[j].guestId = behindId;
+          this._queueSlots[i].guestId = null;
+          behindGuest.setQueuePosition(j);
+          const pos = this._queueSlots[j].position;
+          const path = Pathfinding.findPath(
+            this._tileGrid,
+            behindGuest.gridX,
+            behindGuest.gridY,
+            pos.x,
+            pos.y,
+            true,
+          );
+          behindGuest.setPath(path);
+          behindGuest.setStatus(EGuestStatus.WALKING_TO_QUEUE);
+          break;
+        }
+      }
+    }
+  }
+
+  /** Send a table guest to the bar queue to order */
+  sendGuestToQueue(guest: Guest) {
+    // Move dirty glass from table to bar queue
+    if (guest.seatApplianceId) {
+      const seatApp = this._appliances.get(guest.seatApplianceId);
+      if (seatApp && this._barQueue) {
+        const slots = seatApp.state.slots;
+        for (let i = 0; i < slots.length; i++) {
+          if (slots[i]) {
+            const item = this._items.get(slots[i]!);
+            if (item && item.type === EItemType.DIRTY_GLASS) {
+              // Move dirty glass to bar queue
+              seatApp.setSlot(i, null);
+              if (this._barQueue.hasOpenSlot()) {
+                const qSlot = this._barQueue.getFirstOpenSlotIndex();
+                item.placeOnAppliance(this._barQueue.id, qSlot);
+                this._barQueue.setSlot(qSlot, item.id);
+              } else {
+                this._items.delete(item.id);
+              }
+              guest.setCarryingDirtyGlass(true);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Assign queue slot and pathfind
+    const slotIdx = this.assignQueueSlot(guest);
+    if (slotIdx >= 0) {
+      guest.setStatus(EGuestStatus.WALKING_TO_QUEUE);
+    } else {
+      // Queue full — stay at table and wait (retry next tick)
+      guest.setStatus(EGuestStatus.DECIDING);
+    }
+  }
+
+  /** Send a queued guest back to their seat after being served */
+  sendGuestBackToSeat(guest: Guest) {
+    this.freeQueueSlot(guest.id);
+    guest.setCarryingDirtyGlass(false);
+    guest.setStatus(EGuestStatus.RETURNING_TO_SEAT);
+    if (guest.seatApplianceId) {
+      const path = this.pathfindGuestToSeat(guest, guest.seatApplianceId, guest.seatIndex);
+      guest.setPath(path);
+    }
+  }
+
+  /** Pathfind a guest from their current position to near their seat appliance.
+   *  When seatIndex is provided, uses SEAT_OFFSETS to route to a unique tile per seat. */
+  pathfindGuestToSeat(guest: Guest, applianceId: string, seatIndex: number = -1): Vec2[] {
     const appliance = this._appliances.get(applianceId);
     if (!appliance) return [];
 
-    // Find a walkable tile adjacent to the appliance
+    // Use seat offset to determine a unique target tile per seat
+    if (seatIndex >= 0) {
+      const offsets = SEAT_OFFSETS[appliance.type];
+      if (offsets && seatIndex < offsets.length) {
+        const [ox, oy] = offsets[seatIndex];
+        const targetX = appliance.gridX + Math.round(ox);
+        const targetY = appliance.gridY + Math.round(oy);
+        if (this._tileGrid.isWalkableForGuest(targetX, targetY)) {
+          return Pathfinding.findPath(
+            this._tileGrid,
+            guest.gridX,
+            guest.gridY,
+            targetX,
+            targetY,
+            true,
+          );
+        }
+      }
+    }
+
+    // Fallback: find a walkable tile adjacent to the appliance
     const adjacent = this._tileGrid.getAdjacentTiles(
       appliance.gridX,
       appliance.gridY,
@@ -384,6 +956,39 @@ export class Engine {
     // Guest spawning
     this._guestSpawner.tick(dt);
 
+    // Rebuild occupied tiles for collision detection
+    // Transient-movement guests phase through to avoid deadlocks:
+    // LEAVING, RETURNING_TO_SEAT, WALKING_TO_QUEUE, WALKING_TO_SEAT
+    const phaseThrough = (s: EGuestStatus) =>
+      s === EGuestStatus.LEAVING ||
+      s === EGuestStatus.RETURNING_TO_SEAT ||
+      s === EGuestStatus.WALKING_TO_QUEUE ||
+      s === EGuestStatus.WALKING_TO_SEAT;
+    this._occupiedTiles.clear();
+    for (const guest of this._guests.values()) {
+      if (phaseThrough(guest.status)) continue;
+      this._occupiedTiles.add(`${guest.gridX},${guest.gridY}`);
+      if (guest.isMoving) {
+        this._occupiedTiles.add(`${guest.state.targetX},${guest.state.targetY}`);
+      }
+    }
+
+    // Set collision callbacks — transient-movement guests phase through
+    for (const guest of this._guests.values()) {
+      if (phaseThrough(guest.status)) {
+        guest.setTileBlockedCheck(null);
+      } else {
+        const guestId = guest.id;
+        const gx = guest.gridX;
+        const gy = guest.gridY;
+        guest.setTileBlockedCheck((x, y) => {
+          const key = `${x},${y}`;
+          if (x === gx && y === gy) return false; // own tile is not blocked
+          return this._occupiedTiles.has(key);
+        });
+      }
+    }
+
     // Update bartenders
     for (const bartender of this._bartenders) {
       if (bartender.id === null) continue;
@@ -406,7 +1011,50 @@ export class Engine {
       }
     }
 
+    // Assign seats to WAITING_AT_DOOR guests (by party)
+    const waitingParties = new Map<string, Guest[]>();
+    for (const guest of this._guests.values()) {
+      if (guest.status !== EGuestStatus.WAITING_AT_DOOR) continue;
+      const arr = waitingParties.get(guest.partyId) ?? [];
+      arr.push(guest);
+      waitingParties.set(guest.partyId, arr);
+    }
+    for (const [, partyGuests] of waitingParties) {
+      const seats = this.findGroupSeating(partyGuests.length);
+      if (!seats) continue;
+      for (let i = 0; i < partyGuests.length; i++) {
+        const guest = partyGuests[i];
+        const seat = seats[i];
+        const appliance = this._appliances.get(seat.applianceId);
+        guest.setSeat(seat.applianceId, seat.seatIndex, appliance?.gridX ?? 0, appliance?.gridY ?? 0);
+        if (appliance) {
+          appliance.seatGuest(seat.seatIndex, guest.id);
+        }
+        const path = this.pathfindGuestToSeat(guest, seat.applianceId, seat.seatIndex);
+        guest.setPath(path);
+        guest.setStatus(EGuestStatus.WALKING_TO_SEAT);
+      }
+    }
+
+    // Table guests: redirect READY_TO_ORDER to bar queue
+    for (const guest of this._guests.values()) {
+      if (guest.status !== EGuestStatus.READY_TO_ORDER) continue;
+      if (this.isCounterGuest(guest)) continue; // counter guests stay in place
+      this.sendGuestToQueue(guest);
+    }
+
+    // Clean up queue slots for guests that started leaving
+    for (const guest of this._guests.values()) {
+      if (guest.status === EGuestStatus.LEAVING && guest.queuePosition >= 0) {
+        this.freeQueueSlot(guest.id);
+      }
+    }
+
     // Update guests
+    const prevStatuses = new Map<string, EGuestStatus>();
+    for (const guest of this._guests.values()) {
+      prevStatuses.set(guest.id, guest.status);
+    }
     const toRemove: string[] = [];
     for (const guest of this._guests.values()) {
       const shouldRemove = guest.tick(dt);
@@ -415,15 +1063,121 @@ export class Engine {
       }
     }
 
-    // Remove departed guests
+    // Detect newly started fights (AOE happiness drop + events)
+    for (const guest of this._guests.values()) {
+      if (guest.status === EGuestStatus.FIGHTING && prevStatuses.get(guest.id) !== EGuestStatus.FIGHTING) {
+        this._shiftStats.fights++;
+        this._pushEvent(EEngineEventType.BAR_FIGHT_STARTED, { guestId: guest.id });
+        // AOE happiness drop to nearby guests
+        for (const other of this._guests.values()) {
+          if (other.id === guest.id) continue;
+          const dist = Math.abs(other.gridX - guest.gridX) + Math.abs(other.gridY - guest.gridY);
+          if (dist <= GameSettings.fightAoeRadius) {
+            other.adjustHappiness(-GameSettings.fightAoeHappinessDrop);
+          }
+        }
+      }
+    }
+
+    // Slip detection: leaving guests walking through mess tiles while drunk
+    for (const guest of this._guests.values()) {
+      if (guest.status !== EGuestStatus.LEAVING) continue;
+      if (!guest.isMoving) continue;
+      if (guest.drunkenness < GameSettings.slipDrunkThreshold) continue;
+      const messKey = `${guest.gridX},${guest.gridY}`;
+      if (this._messes.has(messKey) && Random.range(0, 1) < GameSettings.slipChance) {
+        guest.adjustHappiness(-GameSettings.slipHappinessPenalty);
+        guest.setStatus(EGuestStatus.SLIPPED);
+        this._shiftStats.slips++;
+        this._pushEvent(EEngineEventType.GUEST_SLIPPED, { guestId: guest.id });
+      }
+    }
+
+    // Transform served drinks into dirty glasses when guests finish drinking
+    for (const guest of this._guests.values()) {
+      if (!guest.producedDirtyGlass) continue;
+      guest.clearDirtyGlassFlag();
+
+      // Try to transform the drink sitting on the guest's seat to a dirty glass
+      let transformed = false;
+      if (guest.seatApplianceId) {
+        const seatApp = this._appliances.get(guest.seatApplianceId);
+        if (seatApp) {
+          const slots = seatApp.state.slots;
+          for (let i = 0; i < slots.length; i++) {
+            if (slots[i]) {
+              const item = this._items.get(slots[i]!);
+              if (item && item.type !== EItemType.DIRTY_GLASS) {
+                item.setType(EItemType.DIRTY_GLASS);
+                transformed = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (!transformed) {
+        this._spawnDirtyGlass();
+      }
+
+      // Chance to create mess based on drunkenness + traits
+      if (!guest.hasTrait(EGuestTrait.CLEANLY)) {
+        let messChance = GameSettings.messChanceBase + guest.drunkenness * GameSettings.messChanceDrunkBonus;
+        if (guest.hasTrait(EGuestTrait.MESSY)) messChance *= GameSettings.messyMessMultiplier;
+        if (Random.range(0, 1) < messChance) {
+          this._messes.add(`${guest.gridX},${guest.gridY}`);
+        }
+      }
+    }
+
+    // Remove departed guests + reputation tracking
     for (const id of toRemove) {
       const guest = this._guests.get(id);
-      if (guest?.seatApplianceId) {
-        const appliance = this._appliances.get(guest.seatApplianceId);
-        appliance?.unseatGuest(guest.id);
+      if (guest) {
+        this._shiftStats.guestsTotal++;
+        // Reputation change based on happiness at departure
+        if (guest.happiness >= 60) {
+          const rep = GameSettings.reputationPerHappyGuest;
+          this._reputation += rep;
+          this._shiftStats.reputationChange += rep;
+        } else if (guest.happiness < 30) {
+          const rep = GameSettings.reputationPerSadGuest;
+          this._reputation += rep;
+          this._shiftStats.reputationChange += rep;
+        }
+        if (guest.seatApplianceId) {
+          const appliance = this._appliances.get(guest.seatApplianceId);
+          appliance?.unseatGuest(guest.id);
+        }
       }
       this._guests.delete(id);
-      this._pushEvent(EEngineEventType.GUEST_LEFT, { guestId: id });
+      this._pushEvent(EEngineEventType.GUEST_LEFT, { guestId: id, happiness: guest?.happiness ?? 0 });
     }
+  }
+
+  private _spawnDirtyGlass() {
+    // Find an appliance with open slots to place the dirty glass
+    for (const appliance of this._appliances.values()) {
+      if (appliance.type === EApplianceType.SERVICE_BAR && appliance.hasOpenSlot()) {
+        const item = new Item(EItemType.DIRTY_GLASS);
+        const slot = appliance.getFirstOpenSlotIndex();
+        item.placeOnAppliance(appliance.id, slot);
+        appliance.setSlot(slot, item.id);
+        this._items.set(item.id, item);
+        return;
+      }
+    }
+    // Fallback: place on any counter with open slot
+    for (const appliance of this._appliances.values()) {
+      if (appliance.type === EApplianceType.COUNTER && appliance.hasOpenSlot()) {
+        const item = new Item(EItemType.DIRTY_GLASS);
+        const slot = appliance.getFirstOpenSlotIndex();
+        item.placeOnAppliance(appliance.id, slot);
+        appliance.setSlot(slot, item.id);
+        this._items.set(item.id, item);
+        return;
+      }
+    }
+    // No space — glass is lost (acceptable for prototype)
   }
 }
