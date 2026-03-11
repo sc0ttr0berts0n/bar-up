@@ -62,10 +62,15 @@ export class Game {
           events: this.engine.events,
           money: this.engine.money,
           shiftPhase: this.engine.shiftManager.phase,
-          shiftTimer: this.engine.shiftManager.remainingTime,
+          shiftTimer: this.engine.shiftManager.isOvertime
+            ? this.engine.shiftManager.overtimeTimer
+            : this.engine.shiftManager.remainingTime,
           messes: this.engine.messes,
           reputation: this.engine.reputation,
           menuConfig: this.engine.menuConfig,
+          policeAttention: this.engine.policeAttention,
+          isLastCall: this.engine.shiftManager.lastCallTriggered,
+          isOvertime: this.engine.shiftManager.isOvertime,
         },
       });
 

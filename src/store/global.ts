@@ -18,6 +18,7 @@ export interface IShiftSummary {
   fights: number;
   slips: number;
   overserves: number;
+  policeRaids: number;
 }
 
 export const store = reactive({
@@ -29,8 +30,11 @@ export const store = reactive({
   },
   money: 0,
   reputation: 0,
+  policeAttention: 0,
   shiftPhase: "prep" as "prep" | "service" | "closing",
   shiftTimer: 0,
+  isLastCall: false,
+  isOvertime: false,
   heldItemType: null as string | null,
   facingGuest: null as IGuestStateData | null,
   submenu: {
@@ -53,5 +57,6 @@ export const store = reactive({
     fights: 0,
     slips: 0,
     overserves: 0,
+    policeRaids: 0,
   } as IShiftSummary,
 });

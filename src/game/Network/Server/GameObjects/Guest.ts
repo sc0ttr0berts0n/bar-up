@@ -22,6 +22,7 @@ export class Guest {
   private _moveProgress: number = 1;
   private _status: EGuestStatus = EGuestStatus.WALKING_TO_SEAT;
   private _order: IGuestOrder | null = null;
+  private _patience: number;
   private _happiness: number;
   private _roundsRemaining: number;
   private _seatApplianceId: string | null = null;
@@ -42,12 +43,17 @@ export class Guest {
   private _producedDirtyGlass: boolean = false;
   private _name: string;
   private _chatCount: number = 0;
+  private _chatAvailable: boolean = false;
+  private _chatCooldown: number = 0;
   private _preferredDrink: string | null = null;
   private _preferenceRevealed: boolean = false;
   private _traits: EGuestTrait[] = [];
   private _revealedTraits: EGuestTrait[] = [];
   private _queuePosition: number = -1;
   private _carryingDirtyGlass: boolean = false;
+  private _wasOverserved: boolean = false;
+  private _lastCallDecision: "none" | "ordering" | "leaving" | "finishing" = "none";
+  private _isChugging: boolean = false;
   private _isTileBlocked: ((x: number, y: number) => boolean) | null = null;
 
   constructor(partyId: string, spawnX: number, spawnY: number) {
@@ -57,12 +63,17 @@ export class Guest {
     this._gridY = spawnY;
     this._targetX = spawnX;
     this._targetY = spawnY;
+    this._patience = GameSettings.patienceStarting;
     this._happiness = GameSettings.happinessStarting;
     this._roundsRemaining = Random.rangeInt(1, 3);
     this._name = Random.pickOne(GUEST_NAMES);
     this._drunkGoal = Random.range(
       GameSettings.drunkGoalRange[0],
       GameSettings.drunkGoalRange[1],
+    );
+    this._chatCooldown = Random.range(
+      GameSettings.chatInitialCooldown[0],
+      GameSettings.chatInitialCooldown[1],
     );
 
     // Pick a random preferred drink from the menu
@@ -90,6 +101,9 @@ export class Guest {
   get order() {
     return this._order;
   }
+  get patience() {
+    return this._patience;
+  }
   get happiness() {
     return this._happiness;
   }
@@ -113,6 +127,9 @@ export class Guest {
   }
   get chatCount() {
     return this._chatCount;
+  }
+  get chatAvailable() {
+    return this._chatAvailable;
   }
   get preferredDrink() {
     return this._preferredDrink;
@@ -141,8 +158,26 @@ export class Guest {
   setCarryingDirtyGlass(val: boolean) {
     this._carryingDirtyGlass = val;
   }
+  get wasOverserved() {
+    return this._wasOverserved;
+  }
+  setOverserved() {
+    this._wasOverserved = true;
+  }
   setTileBlockedCheck(fn: ((x: number, y: number) => boolean) | null) {
     this._isTileBlocked = fn;
+  }
+  get lastCallDecision() {
+    return this._lastCallDecision;
+  }
+  setLastCallDecision(decision: "none" | "ordering" | "leaving" | "finishing") {
+    this._lastCallDecision = decision;
+  }
+  get isChugging() {
+    return this._isChugging;
+  }
+  setChugging(val: boolean) {
+    this._isChugging = val;
   }
 
   hasTrait(trait: EGuestTrait): boolean {
@@ -156,6 +191,11 @@ export class Guest {
   /** Chat with this guest. Returns true if new info was revealed. */
   chat(): boolean {
     this._chatCount++;
+    this._chatAvailable = false;
+    this._chatCooldown = Random.range(
+      GameSettings.chatCooldownRange[0],
+      GameSettings.chatCooldownRange[1],
+    );
     this.adjustHappiness(GameSettings.chatHappinessBonus);
 
     // CHATTY trait: bonus happiness
@@ -231,6 +271,10 @@ export class Guest {
     this._order = null;
   }
 
+  adjustPatience(amount: number) {
+    this._patience = Math.max(0, Math.min(GameSettings.patienceMax, this._patience + amount));
+  }
+
   adjustHappiness(amount: number) {
     this._happiness = Math.max(0, Math.min(GameSettings.happinessMax, this._happiness + amount));
   }
@@ -287,17 +331,30 @@ export class Guest {
         break;
 
       case EGuestStatus.DECIDING: {
+        // Last call: immediate leave or fast deciding
+        if (this._lastCallDecision === "leaving") {
+          this.setStatus(EGuestStatus.LEAVING);
+          break;
+        }
+        const lastCallOrdering = this._lastCallDecision === "ordering" || this._lastCallDecision === "finishing";
         const isOverGoal = this._drunkenness >= this._drunkGoal;
-        const [minDecide, maxDecide] = isOverGoal
-          ? GameSettings.drunkCoastDuration
-          : this._isReorder
-            ? GameSettings.reorderPauseDuration
-            : GameSettings.decidingDuration;
-        let decideDuration = Random.range(minDecide, maxDecide);
-        if (this.hasTrait(EGuestTrait.IMPATIENT)) decideDuration *= GameSettings.impatientTimerMultiplier;
+        let decideDuration: number;
+        if (lastCallOrdering) {
+          decideDuration = GameSettings.lastCallDecideSpeed;
+        } else {
+          const [minDecide, maxDecide] = isOverGoal
+            ? GameSettings.drunkCoastDuration
+            : this._isReorder
+              ? GameSettings.reorderPauseDuration
+              : GameSettings.decidingDuration;
+          decideDuration = Random.range(minDecide, maxDecide);
+          if (this.hasTrait(EGuestTrait.IMPATIENT)) decideDuration *= GameSettings.impatientTimerMultiplier;
+        }
         if (this._statusTimer >= decideDuration) {
           this._isReorder = false;
-          if (isOverGoal) {
+          if (lastCallOrdering) {
+            this.setStatus(EGuestStatus.READY_TO_ORDER);
+          } else if (isOverGoal) {
             // Past their goal: chance to leave, otherwise coast (re-enter DECIDING)
             if (Random.range(0, 1) < GameSettings.drunkLeaveChance) {
               this.setStatus(EGuestStatus.LEAVING);
@@ -321,8 +378,8 @@ export class Guest {
         break;
 
       case EGuestStatus.QUEUED:
-        // Waiting in line — happiness decays
-        this.adjustHappiness(-GameSettings.queueHappinessDecayRate * dt);
+        // Waiting in line — patience decays
+        this.adjustPatience(-GameSettings.queuePatienceDecayRate * dt);
         break;
 
       case EGuestStatus.RETURNING_TO_SEAT:
@@ -333,19 +390,31 @@ export class Guest {
         break;
 
       case EGuestStatus.READY_TO_ORDER:
-        // Happiness decays while waiting to give order (counter guests only)
+        // Patience decays while waiting to give order
         if (this._statusTimer > 5) {
-          this.adjustHappiness(-GameSettings.happinessReadyDecayRate * dt);
+          this.adjustPatience(-GameSettings.patienceReadyDecayRate * dt);
         }
         break;
 
       case EGuestStatus.WAITING_FOR_ORDER:
-        // Happiness decays while waiting for drink
-        this.adjustHappiness(-GameSettings.happinessDecayRate * dt);
+        // Patience decays while waiting for drink
+        this.adjustPatience(-GameSettings.patienceWaitingForDrinkDecayRate * dt);
         break;
 
       case EGuestStatus.DRINKING: {
+        // Chugging: advance status timer faster during last call
+        if (this._isChugging) {
+          this._statusTimer += dt * (GameSettings.lastCallChugSpeedMultiplier - 1);
+        }
         this._drinkProgress = Math.min(1, this._statusTimer / this._drinkDuration);
+
+        // Chat cooldown tick
+        if (!this._chatAvailable && this._chatCooldown > 0) {
+          this._chatCooldown -= dt;
+          if (this._chatCooldown <= 0) {
+            this._chatAvailable = true;
+          }
+        }
 
         // Discrete sips — check if it's time for the next sip
         const sipInterval = 1.0 / GameSettings.sipsPerDrink;
@@ -363,12 +432,26 @@ export class Guest {
           this._producedDirtyGlass = true;
           this._sipsTaken = 0; // reset for next drink
           this._order = null; // clear order now that drink is done
-          this.decrementRounds();
-          if (this._roundsRemaining <= 0) {
-            this.setStatus(EGuestStatus.LEAVING);
-          } else {
+          this._isChugging = false;
+
+          // Last call post-drink behavior
+          if (this._lastCallDecision === "ordering") {
+            this._roundsRemaining = 1;
             this._isReorder = true;
             this.setStatus(EGuestStatus.DECIDING);
+            this._lastCallDecision = "finishing"; // after this next drink, leave
+          } else if (this._lastCallDecision === "finishing") {
+            this._roundsRemaining = 0;
+            this.setStatus(EGuestStatus.LEAVING);
+          } else {
+            // Normal behavior
+            this.decrementRounds();
+            if (this._roundsRemaining <= 0) {
+              this.setStatus(EGuestStatus.LEAVING);
+            } else {
+              this._isReorder = true;
+              this.setStatus(EGuestStatus.DECIDING);
+            }
           }
         }
         break;
@@ -382,8 +465,8 @@ export class Guest {
         break;
 
       case EGuestStatus.SLIPPED:
-        // Happiness decays while on the floor
-        this.adjustHappiness(-GameSettings.happinessDecayRate * dt);
+        // Patience decays while on the floor
+        this.adjustPatience(-GameSettings.patienceDecayRate * dt);
         break;
 
       case EGuestStatus.LEAVING:
@@ -406,9 +489,9 @@ export class Guest {
       this.setStatus(EGuestStatus.FIGHTING);
     }
 
-    // Force leave if happiness hits 0
+    // Force leave if patience hits 0
     const noLeaveStatuses = [EGuestStatus.LEAVING, EGuestStatus.WAITING_AT_DOOR, EGuestStatus.FIGHTING, EGuestStatus.SLIPPED, EGuestStatus.WALKING_TO_QUEUE, EGuestStatus.QUEUED, EGuestStatus.RETURNING_TO_SEAT];
-    if (this._happiness <= 0 && !noLeaveStatuses.includes(this._status)) {
+    if (this._patience <= 0 && !noLeaveStatuses.includes(this._status)) {
       this.setStatus(EGuestStatus.LEAVING);
     }
 
@@ -427,6 +510,7 @@ export class Guest {
       moveProgress: this._moveProgress,
       status: this._status,
       order: this._order,
+      patience: this._patience,
       happiness: this._happiness,
       roundsRemaining: this._roundsRemaining,
       seatApplianceId: this._seatApplianceId,
@@ -439,12 +523,16 @@ export class Guest {
       drunkGoal: this._drunkGoal,
       ordersCompleted: this._ordersCompleted,
       chatCount: this._chatCount,
+      chatAvailable: this._chatAvailable,
       preferredDrink: this._preferenceRevealed ? this._preferredDrink : null,
       preferenceRevealed: this._preferenceRevealed,
       traitCount: this._traits.length,
       revealedTraits: this._revealedTraits.map((t) => t as string),
       queuePosition: this._queuePosition,
       carryingDirtyGlass: this._carryingDirtyGlass,
+      wasOverserved: this._wasOverserved,
+      lastCallDecision: this._lastCallDecision,
+      isChugging: this._isChugging,
     };
   }
 }

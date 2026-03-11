@@ -9,6 +9,7 @@ import {
   type INetworkPacketClientStop,
   type INetworkPacketClientSetMenu,
   type INetworkPacketClientRestock,
+  type INetworkPacketClientSkipPhase,
   type ITargetedNetworkPacket,
   PACKET_TYPE,
 } from "./PacketTypes";
@@ -51,6 +52,7 @@ export class ClientPacketHandler {
       applianceId: z.string(),
     }),
   });
+  private static _schemaSkipPhase = ClientPacketHandler.schemaBasePacket;
 
   static handle<T extends ITargetedNetworkPacket>(packet: T) {
     switch (packet.type) {
@@ -117,6 +119,11 @@ export class ClientPacketHandler {
         ClientPacketHandler._handleRestock(validPacket);
         break;
       }
+      case PACKET_TYPE.CLIENT_SKIP_PHASE: {
+        ClientPacketHandler._schemaSkipPhase.parse(packet);
+        ClientPacketHandler._handleSkipPhase();
+        break;
+      }
       default:
         return null;
     }
@@ -158,5 +165,11 @@ export class ClientPacketHandler {
 
   private static _handleRestock(packet: INetworkPacketClientRestock) {
     Server.game?.engine.restockAppliance(packet.data.applianceId);
+  }
+
+  private static _handleSkipPhase() {
+    if (Server.game?.engine.shiftManager.phase === "prep") {
+      Server.game.engine.shiftManager.skipPhase();
+    }
   }
 }

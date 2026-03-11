@@ -17,6 +17,7 @@ export const PACKET_TYPE = {
   CLIENT_LEAVE_GAME: "client-leave-game",
   CLIENT_SET_MENU: "client-set-menu",
   CLIENT_RESTOCK: "client-restock",
+  CLIENT_SKIP_PHASE: "client-skip-phase",
   SERVER_UPDATE: "server-update",
   SERVER_METADATA: "server-metadata",
 } as const;
@@ -63,6 +64,9 @@ export enum EEngineEventType {
   GUEST_HELPED_UP = 14,
   REPUTATION_CHANGE = 15,
   SHIFT_SUMMARY = 16,
+  POLICE_WARNING = 17,
+  POLICE_RAID = 18,
+  LAST_CALL = 19,
 }
 
 export interface INetworkPacketServerUpdate extends INetworkPacket {
@@ -79,6 +83,9 @@ export interface INetworkPacketServerUpdate extends INetworkPacket {
     messes: { x: number; y: number }[];
     reputation: number;
     menuConfig: { drinkKey: string; enabled: boolean; price: number }[];
+    policeAttention: number;
+    isLastCall: boolean;
+    isOvertime: boolean;
   };
 }
 
@@ -142,4 +149,8 @@ export interface INetworkPacketClientRestock extends ITargetedNetworkPacket {
   data: {
     applianceId: string;
   };
+}
+
+export interface INetworkPacketClientSkipPhase extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_SKIP_PHASE"];
 }

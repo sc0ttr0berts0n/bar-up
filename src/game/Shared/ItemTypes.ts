@@ -1,9 +1,6 @@
 export enum EItemType {
-  // Glass types (from Glass Shelf)
-  PINT_GLASS = "pint_glass",
-  SHOT_GLASS = "shot_glass",
-  STEM_GLASS = "stem_glass",
-  HIGHBALL_GLASS = "highball_glass",
+  // Glass (from Glass Shelf)
+  GLASS = "glass",
   // Beer variants (from Draft System)
   PILSNER = "pilsner",
   LAGER = "lager",
@@ -29,20 +26,14 @@ export enum EItemType {
 
 /** Set of all glass types that can be returned to the glass shelf */
 export const GLASS_TYPES = new Set<EItemType>([
-  EItemType.PINT_GLASS,
-  EItemType.SHOT_GLASS,
-  EItemType.STEM_GLASS,
-  EItemType.HIGHBALL_GLASS,
+  EItemType.GLASS,
 ]);
 
 /** Shared display info for items — used by both player and guest views.
  *  Colors must have sufficient contrast for white text overlays. */
 export const ITEM_DISPLAY: Record<string, { label: string; color: number }> = {
-  // Glass types
-  pint_glass: { label: "Pint", color: 0x708090 },
-  shot_glass: { label: "Shot", color: 0x607080 },
-  stem_glass: { label: "Stem", color: 0x506878 },
-  highball_glass: { label: "H-ball", color: 0x486888 },
+  // Glass
+  glass: { label: "Glass", color: 0x708090 },
   // Beer variants
   pilsner: { label: "Pilsner", color: 0x8b7320 },
   lager: { label: "Lager", color: 0x996b10 },

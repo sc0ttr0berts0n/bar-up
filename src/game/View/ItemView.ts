@@ -4,11 +4,8 @@ import { EItemType } from "../Shared/ItemTypes";
 import GameSettings from "../Shared/GameSettings";
 
 const ITEM_ICONS: Record<EItemType, string> = {
-  // Glass types
-  [EItemType.PINT_GLASS]: "🍺",
-  [EItemType.SHOT_GLASS]: "🥃",
-  [EItemType.STEM_GLASS]: "🍷",
-  [EItemType.HIGHBALL_GLASS]: "🥤",
+  // Glass
+  [EItemType.GLASS]: "🥛",
   // Beer variants
   [EItemType.PILSNER]: "🍺",
   [EItemType.LAGER]: "🍺",

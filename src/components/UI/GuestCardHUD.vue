@@ -29,6 +29,23 @@ const drunkGoalPercent = computed(() => {
   return Math.round(Math.min(100, guest.value.drunkGoal * 100));
 });
 
+const overservePercent = computed(() => {
+  return Math.round(GameSettings.overserveDrunkennessThreshold * 100);
+});
+
+const isInDangerZone = computed(() => {
+  return drunkPercent.value >= overservePercent.value;
+});
+
+const isOverserved = computed(() => {
+  return guest.value?.wasOverserved ?? false;
+});
+
+const drunkBarColor = computed(() => {
+  if (isInDangerZone.value) return "#ff3333";
+  return "#d47474";
+});
+
 const statusLabel = computed(() => {
   if (!guest.value) return "";
   switch (guest.value.status) {
@@ -71,7 +88,10 @@ const preferredDrinkDisplay = computed(() => {
   <Transition name="card">
     <div v-if="guest" class="guest-card">
       <div class="guest-card-name">{{ guest.name }}</div>
-      <div class="guest-card-status">{{ statusLabel }}</div>
+      <div class="guest-card-status">
+        {{ statusLabel }}
+        <span v-if="isOverserved" class="overserved-badge">OVERSERVED</span>
+      </div>
 
       <div class="guest-card-bars">
         <div class="bar-row">
@@ -82,12 +102,14 @@ const preferredDrinkDisplay = computed(() => {
           <span class="bar-value">{{ happinessPercent }}%</span>
         </div>
         <div class="bar-row">
-          <span class="bar-label">Drunk</span>
+          <span class="bar-label" :class="{ 'bar-label-danger': isInDangerZone }">Drunk</span>
           <div class="bar-track">
-            <div class="bar-fill" :style="{ width: drunkPercent + '%', background: '#d47474' }"></div>
+            <div class="bar-danger-zone" :style="{ left: overservePercent + '%', width: (100 - overservePercent) + '%' }"></div>
+            <div class="bar-fill" :style="{ width: drunkPercent + '%', background: drunkBarColor }"></div>
             <div class="bar-goal" :style="{ left: drunkGoalPercent + '%' }"></div>
+            <div class="bar-overserve-marker" :style="{ left: overservePercent + '%' }"></div>
           </div>
-          <span class="bar-value">{{ drunkPercent }}%</span>
+          <span class="bar-value" :class="{ 'bar-value-danger': isInDangerZone }">{{ drunkPercent }}%</span>
         </div>
       </div>
 
@@ -158,6 +180,19 @@ const preferredDrinkDisplay = computed(() => {
   font-size: 0.75rem;
   color: #888;
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.overserved-badge {
+  font-size: 0.6rem;
+  font-weight: bold;
+  color: #ff3333;
+  background: rgba(255, 50, 50, 0.15);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 50, 50, 0.3);
 }
 
 .guest-card-bars {
@@ -178,6 +213,9 @@ const preferredDrinkDisplay = computed(() => {
   color: #888;
   width: 36px;
   flex-shrink: 0;
+  &-danger {
+    color: #ff3333;
+  }
 }
 
 .bar-track {
@@ -206,12 +244,34 @@ const preferredDrinkDisplay = computed(() => {
   transition: left 0.15s ease;
 }
 
+.bar-overserve-marker {
+  position: absolute;
+  top: -1px;
+  width: 2px;
+  height: 8px;
+  background: #ff3333;
+  border-radius: 1px;
+  opacity: 0.8;
+  transition: left 0.15s ease;
+}
+
+.bar-danger-zone {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(255, 50, 50, 0.2);
+  border-radius: 0 3px 3px 0;
+}
+
 .bar-value {
   font-size: 0.65rem;
   color: #666;
   width: 30px;
   text-align: right;
   flex-shrink: 0;
+  &-danger {
+    color: #ff3333;
+  }
 }
 
 .guest-card-info {

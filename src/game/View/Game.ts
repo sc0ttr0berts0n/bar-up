@@ -85,7 +85,7 @@ class Game extends Singleton<Game>() {
 
   private _setupFocusHandling() {
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
+      if (e.key.toLowerCase() === "escape") {
         this.focusCanvas();
         if (document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
@@ -109,29 +109,31 @@ class Game extends Singleton<Game>() {
       if (e.repeat) return;
       if (document.activeElement && document.activeElement !== document.body && document.activeElement !== this.canvas) return;
 
+      const key = e.key.toLowerCase();
+
       // Sub-menu input takes priority
       if (store.submenu.visible) {
-        this._handleSubMenuKey(e.key);
+        this._handleSubMenuKey(key);
         return;
       }
 
-      this._keysDown.add(e.key);
+      this._keysDown.add(key);
 
-      switch (e.key) {
+      switch (key) {
         case "w":
-        case "ArrowUp":
+        case "arrowup":
           this._sendMove(EDirection.UP);
           break;
         case "s":
-        case "ArrowDown":
+        case "arrowdown":
           this._sendMove(EDirection.DOWN);
           break;
         case "a":
-        case "ArrowLeft":
+        case "arrowleft":
           this._sendMove(EDirection.LEFT);
           break;
         case "d":
-        case "ArrowRight":
+        case "arrowright":
           this._sendMove(EDirection.RIGHT);
           break;
         case "e":
@@ -152,20 +154,36 @@ class Game extends Singleton<Game>() {
     });
 
     document.addEventListener("keyup", (e) => {
-      this._keysDown.delete(e.key);
+      const key = e.key.toLowerCase();
+      this._keysDown.delete(key);
 
-      const movementKeys = ["w", "ArrowUp", "s", "ArrowDown", "a", "ArrowLeft", "d", "ArrowRight"];
-      if (movementKeys.includes(e.key)) {
-        // Check if any other movement key is still held
-        const stillHeld = movementKeys.some((k) => this._keysDown.has(k));
-        if (!stillHeld) {
-          Communicator.sendToServer<INetworkPacketClientStop>({
-            uuid: Communicator.uuid,
-            type: PACKET_TYPE.CLIENT_STOP,
-          });
+      const movementKeys = ["w", "arrowup", "s", "arrowdown", "a", "arrowleft", "d", "arrowright"];
+      if (movementKeys.includes(key)) {
+        // Always send STOP first to ensure server halts
+        Communicator.sendToServer<INetworkPacketClientStop>({
+          uuid: Communicator.uuid,
+          type: PACKET_TYPE.CLIENT_STOP,
+        });
+        // If another movement key is still held, re-send its direction
+        for (const held of this._keysDown) {
+          const dir = this._directionForKey(held);
+          if (dir !== null) {
+            this._sendMove(dir);
+            break;
+          }
         }
       }
     });
+  }
+
+  private _directionForKey(k: string): EDirection | null {
+    switch (k) {
+      case "w": case "arrowup": return EDirection.UP;
+      case "s": case "arrowdown": return EDirection.DOWN;
+      case "a": case "arrowleft": return EDirection.LEFT;
+      case "d": case "arrowright": return EDirection.RIGHT;
+      default: return null;
+    }
   }
 
   private _sendMove(direction: EDirection) {
@@ -262,15 +280,15 @@ class Game extends Singleton<Game>() {
   private _handleSubMenuKey(key: string) {
     const opts = store.submenu.options;
     switch (key) {
-      case "ArrowUp":
+      case "arrowup":
       case "w":
-      case "ArrowLeft":
+      case "arrowleft":
       case "a":
         store.submenu.selectedIndex = Math.max(0, store.submenu.selectedIndex - 1);
         break;
-      case "ArrowDown":
+      case "arrowdown":
       case "s":
-      case "ArrowRight":
+      case "arrowright":
       case "d":
         store.submenu.selectedIndex = Math.min(opts.length - 1, store.submenu.selectedIndex + 1);
         break;
@@ -279,12 +297,12 @@ class Game extends Singleton<Game>() {
         if (idx < opts.length) this._selectSubMenuOption(idx);
         break;
       }
-      case "Enter":
+      case "enter":
       case " ":
       case "e":
         this._selectSubMenuOption(store.submenu.selectedIndex);
         break;
-      case "Escape":
+      case "escape":
         store.submenu.visible = false;
         break;
     }
@@ -301,6 +319,17 @@ class Game extends Singleton<Game>() {
 
   update(delta: Ticker) {
     this._syncState();
+
+    // Continuously re-send move direction while key is held (resets server timeout)
+    if (this._keysDown.size > 0 && !store.submenu.visible) {
+      for (const held of this._keysDown) {
+        const dir = this._directionForKey(held);
+        if (dir !== null) {
+          this._sendMove(dir);
+          break;
+        }
+      }
+    }
 
     for (const [_uuid, player] of this._players) {
       if (!player.packet) continue;
@@ -322,10 +351,17 @@ class Game extends Singleton<Game>() {
     // Update store for HUD
     store.money = data.money;
     store.reputation = data.reputation;
+    store.policeAttention = data.policeAttention;
     store.menuConfig = data.menuConfig;
     store.appliances = data.appliances;
     store.shiftPhase = data.shiftPhase as "prep" | "service" | "closing";
     store.shiftTimer = data.shiftTimer;
+    store.isLastCall = data.isLastCall;
+    store.isOvertime = data.isOvertime;
+
+    // Lights brighten during last call and closing
+    const lightsUp = (data.isLastCall && data.shiftPhase === "service") || data.shiftPhase === "closing";
+    this.level?.setLightLevel(lightsUp);
 
     // Process events → toasts
     for (const event of data.events) {
@@ -442,6 +478,10 @@ class Game extends Singleton<Game>() {
         return { message: `+$${data.amount}`, color: "#ffd93d" };
       case EEngineEventType.GUEST_OVERSERVED:
         return { message: "Overserved!", color: "#ff4444" };
+      case EEngineEventType.POLICE_WARNING:
+        return { message: "Police are watching!", color: "#ff8800" };
+      case EEngineEventType.POLICE_RAID:
+        return { message: `POLICE RAID! -$${data.penalty ?? 200}`, color: "#ff0000" };
       case EEngineEventType.BAR_FIGHT_STARTED:
         return { message: "Bar fight!", color: "#ff6600" };
       case EEngineEventType.BAR_FIGHT_RESOLVED:
@@ -450,6 +490,8 @@ class Game extends Singleton<Game>() {
         return { message: "Guest slipped!", color: "#ffaa00" };
       case EEngineEventType.GUEST_HELPED_UP:
         return { message: "Helped up", color: "#44aa44" };
+      case EEngineEventType.LAST_CALL:
+        return { message: "LAST CALL!", color: "#ffd93d" };
       case EEngineEventType.SHIFT_CHANGE:
         return { message: `${(data.phase as string).toUpperCase()} phase`, color: "#4ecdc4" };
       case EEngineEventType.SHIFT_SUMMARY:
@@ -463,6 +505,7 @@ class Game extends Singleton<Game>() {
           fights: (data.fights as number) ?? 0,
           slips: (data.slips as number) ?? 0,
           overserves: (data.overserves as number) ?? 0,
+          policeRaids: (data.policeRaids as number) ?? 0,
         };
         return null; // handled by ShiftSummary.vue
       default:

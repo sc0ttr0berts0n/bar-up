@@ -24,6 +24,7 @@ export class Pathfinding {
     endY: number,
     isGuest: boolean,
     blockedTiles?: Set<string>,
+    softBlockTiles?: Set<string>,
   ): Vec2[] {
     if (startX === endX && startY === endY) return [];
 
@@ -93,7 +94,9 @@ export class Pathfinding {
         // Collision: blocked tiles are unwalkable unless it's the destination
         if (!isDestination && blockedTiles?.has(nKey)) continue;
 
-        const g = current.g + 1;
+        // Soft avoidance: occupied tiles cost more to traverse
+        const isSoftBlocked = !isDestination && softBlockTiles?.has(nKey);
+        const g = current.g + (isSoftBlocked ? 4 : 1);
         const h = heuristic(nx, ny);
         const f = g + h;
 

@@ -29,11 +29,12 @@ function dismiss() {
           </div>
         </div>
 
-        <div v-if="store.shiftSummary.fights || store.shiftSummary.slips || store.shiftSummary.overserves" class="summary-events">
+        <div v-if="store.shiftSummary.fights || store.shiftSummary.slips || store.shiftSummary.overserves || store.shiftSummary.policeRaids" class="summary-events">
           <div class="events-title">Events</div>
           <div v-if="store.shiftSummary.fights" class="event-row">Bar fights: {{ store.shiftSummary.fights }}</div>
           <div v-if="store.shiftSummary.slips" class="event-row">Slips: {{ store.shiftSummary.slips }}</div>
           <div v-if="store.shiftSummary.overserves" class="event-row">Overserves: {{ store.shiftSummary.overserves }}</div>
+          <div v-if="store.shiftSummary.policeRaids" class="event-row event-row-raid">Police raids: {{ store.shiftSummary.policeRaids }}</div>
         </div>
 
         <button class="summary-btn" @click="dismiss">Continue</button>
@@ -104,6 +105,9 @@ function dismiss() {
 .event-row {
   font-size: 0.85rem;
   color: #ff8844;
+}
+.event-row-raid {
+  color: #ff3333;
 }
 
 .summary-btn {

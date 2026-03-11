@@ -47,6 +47,7 @@ export class ServerPacketHandler {
     moveProgress: z.number(),
     status: z.nativeEnum(EGuestStatus),
     order: z.union([z.object({ drinkKey: z.string() }), z.null()]),
+    patience: z.number(),
     happiness: z.number(),
     roundsRemaining: z.number(),
     seatApplianceId: z.union([z.string(), z.null()]),
@@ -59,12 +60,16 @@ export class ServerPacketHandler {
     drunkGoal: z.number(),
     ordersCompleted: z.number(),
     chatCount: z.number(),
+    chatAvailable: z.boolean(),
     preferredDrink: z.union([z.string(), z.null()]),
     preferenceRevealed: z.boolean(),
     traitCount: z.number(),
     revealedTraits: z.array(z.string()),
     queuePosition: z.number(),
     carryingDirtyGlass: z.boolean(),
+    wasOverserved: z.boolean(),
+    lastCallDecision: z.string(),
+    isChugging: z.boolean(),
   });
 
   private static _applianceSchema = z.object({
@@ -121,6 +126,9 @@ export class ServerPacketHandler {
       messes: z.array(z.object({ x: z.number(), y: z.number() })),
       reputation: z.number(),
       menuConfig: z.array(z.object({ drinkKey: z.string(), enabled: z.boolean(), price: z.number() })),
+      policeAttention: z.number(),
+      isLastCall: z.boolean(),
+      isOvertime: z.boolean(),
     }),
   });
 

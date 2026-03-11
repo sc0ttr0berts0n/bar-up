@@ -16,8 +16,10 @@ export class Bartender {
   private _heldItemType: string | null = null;
   private _isInteracting: boolean = false;
   private _interactProgress: number = 0;
+  private _interactDuration: number = GameSettings.interactDuration;
   private _color: number;
   private _moveDirection: EDirection | null = null;
+  private _moveTimeout: number = 0;
 
   constructor(number: number, spawnX: number, spawnY: number) {
     this._number = number;
@@ -66,8 +68,14 @@ export class Bartender {
     this._heldItemType = itemType;
   }
 
-  startInteract() {
+  startInteract(duration?: number) {
     this._isInteracting = true;
+    this._interactProgress = 0;
+    this._interactDuration = duration ?? GameSettings.interactDuration;
+  }
+
+  cancelInteract() {
+    this._isInteracting = false;
     this._interactProgress = 0;
   }
 
@@ -77,6 +85,7 @@ export class Bartender {
    */
   setMoveDirection(direction: EDirection | null) {
     this._moveDirection = direction;
+    this._moveTimeout = 0;
     if (direction !== null) {
       this._facing = direction;
     }
@@ -92,10 +101,19 @@ export class Bartender {
   ): boolean {
     // Handle interaction progress
     if (this._isInteracting) {
-      this._interactProgress += dt / GameSettings.interactDuration;
+      this._interactProgress += dt / this._interactDuration;
       if (this._interactProgress >= 1) {
         this._isInteracting = false;
         this._interactProgress = 0;
+      }
+    }
+
+    // Safety net: auto-stop if no new move packet received for 0.5s
+    if (this._moveDirection !== null) {
+      this._moveTimeout += dt;
+      if (this._moveTimeout > 0.5) {
+        this._moveDirection = null;
+        this._moveTimeout = 0;
       }
     }
 

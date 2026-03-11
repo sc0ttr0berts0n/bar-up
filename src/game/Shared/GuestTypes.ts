@@ -57,6 +57,7 @@ export interface IGuestStateData {
   moveProgress: number;
   status: EGuestStatus;
   order: IGuestOrder | null;
+  patience: number;
   happiness: number;
   roundsRemaining: number;
   seatApplianceId: string | null;
@@ -69,10 +70,14 @@ export interface IGuestStateData {
   drunkGoal: number;
   ordersCompleted: number;
   chatCount: number;
+  chatAvailable: boolean;
   preferredDrink: string | null;
   preferenceRevealed: boolean;
   traitCount: number;
   revealedTraits: string[];
   queuePosition: number;
   carryingDirtyGlass: boolean;
+  wasOverserved: boolean;
+  lastCallDecision: string;
+  isChugging: boolean;
 }

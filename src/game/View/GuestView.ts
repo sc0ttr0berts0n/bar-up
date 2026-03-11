@@ -23,6 +23,7 @@ const STATUS_ICONS: Record<EGuestStatus, string> = {
 export class GuestView extends Container {
   private _body: Graphics;
   private _statusIcon: Text;
+  private _patienceBar: Graphics;
   private _happinessBar: Graphics;
   private _drinkProgressBar: Graphics;
   private _orderBubbleBg: Graphics;
@@ -34,6 +35,8 @@ export class GuestView extends Container {
   private _preferenceText: Text;
   private _drinkGlass: Graphics;
   private _traitIcons: Text;
+  private _dangerIcon: Text;
+  private _overservedIcon: Text;
   private _displayX: number = -1;
   private _displayY: number = -1;
 
@@ -79,20 +82,25 @@ export class GuestView extends Container {
     this._orderBubbleText.visible = false;
     this.addChild(this._orderBubbleText);
 
-    // Happiness bar
+    // Patience bar (urgency — green/yellow/red)
+    this._patienceBar = new Graphics();
+    this._patienceBar.y = r + 4;
+    this.addChild(this._patienceBar);
+
+    // Happiness bar (satisfaction — blue/teal)
     this._happinessBar = new Graphics();
-    this._happinessBar.y = r + 4;
+    this._happinessBar.y = r + 11;
     this.addChild(this._happinessBar);
 
     // Drink progress bar
     this._drinkProgressBar = new Graphics();
-    this._drinkProgressBar.y = r + 11;
+    this._drinkProgressBar.y = r + 18;
     this._drinkProgressBar.visible = false;
     this.addChild(this._drinkProgressBar);
 
     // Chat bubble (shows briefly after chatting)
     this._chatBubble = new Text({
-      text: "💬",
+      text: "\uD83D\uDCAC",
       style: { fontSize: 18 },
     });
     this._chatBubble.anchor.set(0.5);
@@ -132,6 +140,28 @@ export class GuestView extends Container {
     this._traitIcons.anchor.set(0.5);
     this._traitIcons.visible = false;
     this.addChild(this._traitIcons);
+
+    // Danger icon — pulsing warning when near overserve threshold
+    this._dangerIcon = new Text({
+      text: "\u26A0",
+      style: { fontSize: 14 },
+    });
+    this._dangerIcon.anchor.set(0.5);
+    this._dangerIcon.x = r + 6;
+    this._dangerIcon.y = -r + 2;
+    this._dangerIcon.visible = false;
+    this.addChild(this._dangerIcon);
+
+    // Overserved icon — persistent dizzy indicator
+    this._overservedIcon = new Text({
+      text: "\uD83D\uDCAB",
+      style: { fontSize: 12 },
+    });
+    this._overservedIcon.anchor.set(0.5);
+    this._overservedIcon.x = -r - 6;
+    this._overservedIcon.y = -r + 2;
+    this._overservedIcon.visible = false;
+    this.addChild(this._overservedIcon);
   }
 
   update(_delta: Ticker, state: IGuestStateData) {
@@ -161,9 +191,33 @@ export class GuestView extends Container {
     const tintG = Math.round(soberG + (flushG - soberG) * drunk);
     const tintB = Math.round(soberB + (flushB - soberB) * drunk);
     const tintColor = (tintR << 16) | (tintG << 8) | tintB;
+
+    // Danger zone: red stroke when drunkenness is at or above overserve threshold
+    const inDanger = state.drunkenness >= GameSettings.overserveDrunkennessThreshold;
+    const strokeColor = inDanger ? 0xff3333 : 0x333333;
+    const strokeWidth = inDanger ? 2 : 1;
+
     this._body.clear();
     this._body.circle(0, 0, r).fill(tintColor);
-    this._body.stroke({ color: 0x333333, width: 1 });
+    this._body.stroke({ color: strokeColor, width: strokeWidth });
+
+    // Danger icon — pulsing warning triangle
+    if (inDanger) {
+      this._dangerIcon.visible = true;
+      this._dangerIcon.alpha = 0.5 + 0.5 * Math.sin(Date.now() / 200);
+    } else {
+      this._dangerIcon.visible = false;
+    }
+
+    // Overserved icon — persistent
+    this._overservedIcon.visible = state.wasOverserved;
+
+    // Chugging visual — body shakes
+    if (state.isChugging && state.status === EGuestStatus.DRINKING) {
+      this._body.x = Math.sin(Date.now() / 50) * 2;
+    } else {
+      this._body.x = 0;
+    }
 
     // Status icon
     this._statusIcon.text = STATUS_ICONS[state.status] ?? "";
@@ -195,6 +249,10 @@ export class GuestView extends Container {
       const pillY = -r - 25;
       this._orderBubbleBg.clear();
       this._orderBubbleBg.roundRect(-pillW / 2, pillY, pillW, pillH, 4).fill(pillColor);
+      // Red border on order bubble if guest is in danger zone
+      if (inDanger) {
+        this._orderBubbleBg.stroke({ color: 0xff3333, width: 2 });
+      }
       this._orderBubbleBg.visible = true;
 
       this._orderBubbleText.y = pillY + pillH / 2;
@@ -203,19 +261,31 @@ export class GuestView extends Container {
       this._orderBubbleBg.visible = false;
     }
 
-    // Happiness bar
-    this._happinessBar.clear();
+    // Patience bar (urgency — green/yellow/red)
+    this._patienceBar.clear();
     const barWidth = 30;
-    const barHeight = 5;
+    const barHeight = 4;
+    const patienceRatio = state.patience / GameSettings.patienceMax;
+    const patienceColor =
+      patienceRatio > 0.6 ? 0x00cc00 : patienceRatio > 0.3 ? 0xcccc00 : 0xcc0000;
+    this._patienceBar
+      .rect(-barWidth / 2, 0, barWidth, barHeight)
+      .fill(0x333333);
+    this._patienceBar
+      .rect(-barWidth / 2, 0, barWidth * patienceRatio, barHeight)
+      .fill(patienceColor);
+
+    // Happiness bar (satisfaction — blue/teal)
+    this._happinessBar.clear();
     const happinessRatio = state.happiness / GameSettings.happinessMax;
-    const barColor =
-      happinessRatio > 0.6 ? 0x00cc00 : happinessRatio > 0.3 ? 0xcccc00 : 0xcc0000;
+    const happinessColor =
+      happinessRatio > 0.6 ? 0x4488cc : happinessRatio > 0.3 ? 0x886644 : 0xcc4444;
     this._happinessBar
       .rect(-barWidth / 2, 0, barWidth, barHeight)
       .fill(0x333333);
     this._happinessBar
       .rect(-barWidth / 2, 0, barWidth * happinessRatio, barHeight)
-      .fill(barColor);
+      .fill(happinessColor);
 
     // Drink progress bar (while drinking, color-coded by drink)
     if (state.status === EGuestStatus.DRINKING && state.drinkProgress > 0) {
@@ -259,16 +329,20 @@ export class GuestView extends Container {
       this._drinkGlass.visible = false;
     }
 
-    // Chat bubble — show briefly when chatCount increases
+    // Chat bubble — show when chatAvailable during DRINKING, or briefly after chatting
     const dt = 1 / 60; // approximate frame dt
     if (state.chatCount > this._lastChatCount) {
-      this._chatBubbleTimer = 1.5; // show for 1.5 seconds
+      this._chatBubbleTimer = 1.5; // show "just chatted" flash for 1.5 seconds
       this._lastChatCount = state.chatCount;
     }
     if (this._chatBubbleTimer > 0) {
       this._chatBubbleTimer -= dt;
       this._chatBubble.visible = true;
       this._chatBubble.alpha = Math.min(1, this._chatBubbleTimer / 0.3); // fade out
+    } else if (state.chatAvailable && state.status === EGuestStatus.DRINKING) {
+      // Show steady chat-available indicator
+      this._chatBubble.visible = true;
+      this._chatBubble.alpha = 0.6 + 0.2 * Math.sin(Date.now() / 500); // gentle pulse
     } else {
       this._chatBubble.visible = false;
     }
@@ -277,13 +351,13 @@ export class GuestView extends Container {
     if (state.preferenceRevealed && state.preferredDrink) {
       const prefDisplay = ITEM_DISPLAY[state.preferredDrink];
       if (prefDisplay) {
-        const prefLabel = `♥ ${prefDisplay.label}`;
+        const prefLabel = `\u2665 ${prefDisplay.label}`;
         this._preferenceText.text = prefLabel;
         this._preferenceText.visible = true;
 
         const prefW = Math.max(36, this._preferenceText.width + 8);
         const prefH = 14;
-        const prefY = r + 17;
+        const prefY = r + 24;
         this._preferenceBubbleBg.clear();
         this._preferenceBubbleBg.roundRect(-prefW / 2, prefY, prefW, prefH, 3).fill(prefDisplay.color);
         this._preferenceBubbleBg.visible = true;

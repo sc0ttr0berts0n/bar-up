@@ -23,13 +23,23 @@ export class GuestSpawner {
     if (val) this._timeSinceLastSpawn = GameSettings.guestSpawnInterval * 0.5; // spawn quickly on start
   }
 
+  /** Guest scale multiplier based on active player count */
+  private _getPlayerScale(): number {
+    const scales = GameSettings.playerCountGuestScale;
+    const idx = Math.min(this._engine.activePlayerCount, scales.length) - 1;
+    return scales[idx] ?? 1;
+  }
+
   tick(dt: number) {
     if (!this._enabled) return;
+    if (this._engine.isRaided) return; // No spawning during police raid
 
     this._timeSinceLastSpawn += dt;
+    // Player count scales spawn frequency (more players = shorter interval)
+    const playerScale = this._getPlayerScale();
     // Reputation adjusts spawn interval: higher rep = faster spawns
     const repFactor = Math.max(0.3, 1 - this._engine.reputation * 0.01);
-    const adjustedInterval = GameSettings.guestSpawnInterval * repFactor;
+    const adjustedInterval = GameSettings.guestSpawnInterval * repFactor / playerScale;
     if (this._timeSinceLastSpawn >= adjustedInterval) {
       this._timeSinceLastSpawn = 0;
       this._spawnParty();
@@ -37,11 +47,12 @@ export class GuestSpawner {
   }
 
   private _spawnParty() {
-    if (this._engine.guests.size >= GameSettings.maxConcurrentGuests) return;
+    const guestCap = Math.floor(GameSettings.maxConcurrentGuests * this._getPlayerScale());
+    if (this._engine.guests.size >= guestCap) return;
 
     const partySize = this._rollPartySize();
     // Don't spawn if party would exceed cap
-    if (this._engine.guests.size + partySize > GameSettings.maxConcurrentGuests) return;
+    if (this._engine.guests.size + partySize > guestCap) return;
 
     const partyId = Random.uuid();
     const entrance = this._engine.layout.guestEntrance;

@@ -5,7 +5,7 @@ import Communicator from "../Network/Communicator/Communicator";
 import { TileGridView } from "./TileGridView";
 import { ApplianceView } from "./ApplianceView";
 import { DEFAULT_BAR_LAYOUT } from "../Shared/BarLayout";
-import { APPLIANCE_CONFIGS, SEAT_OFFSETS } from "../Shared/ApplianceTypes";
+import { EApplianceType, APPLIANCE_CONFIGS, SEAT_OFFSETS } from "../Shared/ApplianceTypes";
 
 export class Level extends Container {
   private _scaleContainer = new Container();
@@ -13,8 +13,11 @@ export class Level extends Container {
   private _messLayer = new Graphics();
   private _itemLayer = new Container();
   private _itemPool: { bg: Graphics; label: Text }[] = [];
+  private _capacityPool: Text[] = [];
   private _tileGridView: TileGridView;
   private _applianceViews: ApplianceView[] = [];
+  private _lightOverlay = new Graphics();
+  private _lightTarget: number = 0;
 
   public get entityContainer() {
     return this._entityContainer;
@@ -37,6 +40,13 @@ export class Level extends Container {
       layout.zones,
     );
     this._scaleContainer.addChild(this._tileGridView);
+
+    // Light overlay — sits on top of tiles, brightens during last call
+    const totalW = layout.width * GameSettings.tileSize;
+    const totalH = layout.height * GameSettings.tileSize;
+    this._lightOverlay.rect(0, 0, totalW, totalH).fill(0xffffff);
+    this._lightOverlay.alpha = 0;
+    this._scaleContainer.addChild(this._lightOverlay);
 
     // Create appliance visuals
     for (const placement of layout.appliances) {
@@ -112,7 +122,19 @@ export class Level extends Container {
     };
   }
 
+  /** Set whether lights are bright (last call / closing) */
+  setLightLevel(bright: boolean) {
+    this._lightTarget = bright ? 0.1 : 0;
+  }
+
   update(_delta: Ticker) {
+    // Lerp light overlay toward target
+    const diff = this._lightTarget - this._lightOverlay.alpha;
+    if (Math.abs(diff) > 0.001) {
+      this._lightOverlay.alpha += diff * 0.05;
+    } else {
+      this._lightOverlay.alpha = this._lightTarget;
+    }
     // Render messes
     this._messLayer.clear();
     const messes = Communicator.state?.data?.messes;
@@ -173,6 +195,39 @@ export class Level extends Container {
         } else {
           entry.bg.visible = false;
           entry.label.visible = false;
+        }
+      }
+
+      // Capacity labels for BIN and SINK appliances
+      const capacityAppliances = data.appliances.filter(
+        (a) => a.type === EApplianceType.BIN || a.type === EApplianceType.SINK,
+      );
+
+      // Grow pool if needed
+      while (this._capacityPool.length < capacityAppliances.length) {
+        const capLabel = new Text({
+          text: "",
+          style: { fontFamily: "monospace", fontSize: 10, fill: 0xaaaaaa, fontWeight: "bold" },
+        });
+        capLabel.anchor.set(0.5);
+        this._itemLayer.addChild(capLabel);
+        this._capacityPool.push(capLabel);
+      }
+
+      for (let i = 0; i < this._capacityPool.length; i++) {
+        const capLabel = this._capacityPool[i];
+        if (i < capacityAppliances.length) {
+          const app = capacityAppliances[i];
+          const filled = app.slots.filter((s) => s !== null).length;
+          const cx = app.gridX * ts + ts / 2;
+          const cy = app.gridY * ts + ts + 2; // below the appliance tile
+          capLabel.text = `${filled}/${app.maxSlots}`;
+          capLabel.x = cx;
+          capLabel.y = cy;
+          capLabel.style.fill = filled >= app.maxSlots ? 0xff4444 : 0xaaaaaa;
+          capLabel.visible = true;
+        } else {
+          capLabel.visible = false;
         }
       }
     }

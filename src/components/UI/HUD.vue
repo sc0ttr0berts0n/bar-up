@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { store } from "../../store/global";
+import GameSettings from "../../game/Shared/GameSettings";
+import Communicator from "../../game/Network/Communicator/Communicator";
+import { PACKET_TYPE } from "../../game/Network/Communicator/PacketTypes";
+
+function skipPrepPhase() {
+  Communicator.sendToServer({
+    uuid: Communicator.uuid,
+    type: PACKET_TYPE.CLIENT_SKIP_PHASE,
+  });
+}
 
 const ITEM_NAMES: Record<string, string> = {
-  pint_glass: "Pint Glass",
-  shot_glass: "Shot Glass",
-  stem_glass: "Stem Glass",
-  highball_glass: "Highball Glass",
+  glass: "Glass",
   pilsner: "Pilsner",
   lager: "Lager",
   ale: "Ale",
@@ -33,6 +40,7 @@ const formattedTimer = computed(() => {
 });
 
 const phaseLabel = computed(() => {
+  if (store.isOvertime) return "OVERTIME";
   switch (store.shiftPhase) {
     case "service":
       return "SERVICE";
@@ -46,6 +54,7 @@ const phaseLabel = computed(() => {
 });
 
 const phaseColor = computed(() => {
+  if (store.isOvertime) return "#ff3333";
   switch (store.shiftPhase) {
     case "service":
       return "#4ecdc4";
@@ -58,9 +67,28 @@ const phaseColor = computed(() => {
   }
 });
 
+const showLastCall = computed(() => store.isLastCall && store.shiftPhase === "service");
+
 const heldItemName = computed(() => {
   if (!store.heldItemType) return null;
   return ITEM_NAMES[store.heldItemType] ?? store.heldItemType;
+});
+
+const policeAttention = computed(() => store.policeAttention);
+const showPolice = computed(() => policeAttention.value > 0);
+const policeSegments = computed(() => {
+  const max = GameSettings.policeRaidThreshold;
+  const filled = Math.min(max, Math.ceil(policeAttention.value));
+  return { filled, max };
+});
+const policeColor = computed(() => {
+  const val = policeAttention.value;
+  if (val >= GameSettings.policeRaidThreshold) return "#ff3333";
+  if (val >= GameSettings.policeWarningThreshold) return "#ff8800";
+  return "#ffd93d";
+});
+const policePulse = computed(() => {
+  return policeAttention.value >= GameSettings.policeRaidThreshold;
 });
 </script>
 
@@ -81,6 +109,26 @@ const heldItemName = computed(() => {
       {{ phaseLabel }}
     </div>
     <div class="hud-timer">{{ formattedTimer }}</div>
+    <span v-if="showLastCall" class="hud-last-call">LAST CALL</span>
+    <span v-if="store.isOvertime" class="hud-overtime-pulse">OVERTIME</span>
+    <button v-if="store.shiftPhase === 'prep'" class="hud-skip-btn" @click="skipPrepPhase">
+      Start Shift &#x25B6;
+    </button>
+    <template v-if="showPolice">
+      <div class="hud-divider"></div>
+      <div class="hud-police" :class="{ 'police-pulse': policePulse }">
+        <span class="police-icon">&#x1F6A8;</span>
+        <div class="police-bar">
+          <div
+            v-for="i in policeSegments.max"
+            :key="i"
+            class="police-segment"
+            :class="{ 'segment-filled': i <= policeSegments.filled }"
+            :style="{ background: i <= policeSegments.filled ? policeColor : '#333' }"
+          ></div>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -144,5 +192,60 @@ const heldItemName = computed(() => {
 .hud-timer {
   font-size: 1.3rem;
   color: #aaa;
+}
+.hud-skip-btn {
+  pointer-events: auto;
+  padding: 4px 12px;
+  background: #4ecdc4;
+  color: #111;
+  border: none;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  &:hover { background: #5de0d7; }
+}
+.hud-police {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.police-icon {
+  font-size: 1.1rem;
+}
+.police-bar {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.police-segment {
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  transition: background 0.3s ease;
+}
+.police-pulse {
+  animation: pulse-police 0.8s ease-in-out infinite alternate;
+}
+@keyframes pulse-police {
+  from { opacity: 1; }
+  to { opacity: 0.5; }
+}
+.hud-last-call {
+  font-size: 1rem;
+  font-weight: bold;
+  color: #ffd93d;
+  animation: pulse-last-call 0.6s ease-in-out infinite alternate;
+}
+.hud-overtime-pulse {
+  font-size: 1rem;
+  font-weight: bold;
+  color: #ff3333;
+  animation: pulse-last-call 0.5s ease-in-out infinite alternate;
+}
+@keyframes pulse-last-call {
+  from { opacity: 1; }
+  to { opacity: 0.3; }
 }
 </style>

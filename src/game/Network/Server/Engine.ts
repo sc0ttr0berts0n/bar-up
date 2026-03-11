@@ -34,12 +34,15 @@ export class Engine {
   private _events: IEngineEvent[] = [];
   private _eventCounter: number = 0;
   private _policeAttention: number = 0;
+  private _policeWarningTriggered: boolean = false;
+  private _policeRaidTimer: number = 0;
   private _reputation: number = 0;
-  private _shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0 };
+  private _shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0 };
   private _menuConfig: Map<string, { enabled: boolean; price: number }> = new Map();
   private _barQueue: Appliance | null = null;
   private _queueSlots: { position: Vec2; guestId: string | null }[] = [];
   private _occupiedTiles: Set<string> = new Set();
+  private _pendingWash: Map<number, { itemId: string }> = new Map(); // keyed by bartender number
 
   constructor(game: Game) {
     this._game = game;
@@ -90,13 +93,34 @@ export class Engine {
     this._guestSpawner = new GuestSpawner(this);
     this._shiftManager = new ShiftManager();
     this._shiftManager.onPhaseChange = (phase) => {
+      // Reset all bartender interact states and pending washes on phase change
+      for (const b of this._bartenders) {
+        b.cancelInteract();
+      }
+      this._pendingWash.clear();
+
       this._guestSpawner.enabled = phase === "service";
-      this._pushEvent(EEngineEventType.SHIFT_CHANGE, { phase });
       if (phase === "service") {
-        this._shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0 };
+        this._shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0 };
+      }
+      if (phase === "closing") {
+        // Closing transition — force guest state changes
+        this._handleClosingTransition();
       }
       if (phase === "prep") {
+        // Check if guests remain — if so, start overtime instead
+        if (this._guests.size > 0) {
+          this._shiftManager.startOvertime();
+          return; // don't fire shift summary yet
+        }
         this._pushEvent(EEngineEventType.SHIFT_SUMMARY, { ...this._shiftStats });
+      }
+      this._pushEvent(EEngineEventType.SHIFT_CHANGE, { phase });
+    };
+    this._shiftManager.onLastCall = () => {
+      this._pushEvent(EEngineEventType.LAST_CALL, {});
+      for (const guest of this._guests.values()) {
+        this._guestLastCallDecision(guest);
       }
     };
     // Start with service phase active
@@ -121,6 +145,9 @@ export class Engine {
   get bartenders() {
     return this._bartenders;
   }
+  get activePlayerCount(): number {
+    return this._bartenders.filter((b) => b.id !== null).length || 1; // minimum 1
+  }
   get money() {
     return this._money;
   }
@@ -135,6 +162,12 @@ export class Engine {
   }
   get reputation() {
     return this._reputation;
+  }
+  get policeAttention() {
+    return this._policeAttention;
+  }
+  get isRaided() {
+    return this._policeRaidTimer > 0;
   }
   get shiftStats() {
     return this._shiftStats;
@@ -218,8 +251,6 @@ export class Engine {
     const bartender = this.getBartenderById(uuid);
     if (!bartender || bartender.isMoving || bartender.isInteracting) return;
 
-    bartender.startInteract();
-
     const facingTile = this._getFacingTile(bartender);
     if (!facingTile) return;
 
@@ -262,8 +293,6 @@ export class Engine {
     const bartender = this.getBartenderById(uuid);
     if (!bartender || bartender.isMoving || bartender.isInteracting) return;
 
-    bartender.startInteract();
-
     const facingTile = this._getFacingTile(bartender);
     if (!facingTile) return;
 
@@ -304,8 +333,6 @@ export class Engine {
   bartenderSelect(uuid: string, variantIndex: number) {
     const bartender = this.getBartenderById(uuid);
     if (!bartender || bartender.isMoving || bartender.isInteracting) return;
-
-    bartender.startInteract();
 
     const heldItem = bartender.heldItemId
       ? this._items.get(bartender.heldItemId) ?? null
@@ -440,6 +467,8 @@ export class Engine {
     }
 
     if (guest.status === EGuestStatus.READY_TO_ORDER || guest.status === EGuestStatus.QUEUED) {
+      // Block new orders during closing/overtime
+      if (this._shiftManager.phase === "closing") return;
       // Take the order — only from enabled menu items
       const drinkKeys = this.getEnabledDrinkKeys();
       if (drinkKeys.length === 0) return; // nothing on menu
@@ -451,6 +480,7 @@ export class Engine {
       }
       guest.setOrder({ drinkKey });
       guest.setStatus(EGuestStatus.WAITING_FOR_ORDER);
+      guest.adjustPatience(GameSettings.patienceOrderTakenBonus);
       return;
     }
 
@@ -469,6 +499,7 @@ export class Engine {
       if (heldItem.type === recipe.resultType) {
         // Serve the drink!
         const isTableGuest = !this.isCounterGuest(guest);
+        guest.adjustPatience(GameSettings.patienceServeBonus);
         guest.adjustHappiness(GameSettings.happinessServeBonus);
 
         // Bonus happiness if drink matches preference
@@ -478,8 +509,9 @@ export class Engine {
 
         // Overserve detection: serving a drink to a very drunk guest
         if (guest.drunkenness >= GameSettings.overserveDrunkennessThreshold) {
+          guest.setOverserved();
           this._messes.add(`${guest.gridX},${guest.gridY}`);
-          this._policeAttention++;
+          this._policeAttention += 1.0;
           this._shiftStats.overserves++;
           this._reputation += GameSettings.overserveReputationPenalty;
           this._shiftStats.reputationChange += GameSettings.overserveReputationPenalty;
@@ -511,7 +543,7 @@ export class Engine {
 
         // IMPATIENT fast-serve bonus (served within 10 seconds of ordering)
         if (guest.hasTrait(EGuestTrait.IMPATIENT) && guest.state.statusTimer < 10) {
-          guest.adjustHappiness(GameSettings.impatientFastServeBonus);
+          guest.adjustPatience(GameSettings.impatientFastServeBonus);
         }
 
         // Earn money (use configured price, HIGHROLLER tips more)
@@ -545,15 +577,23 @@ export class Engine {
     }
 
     if (guest.status === EGuestStatus.SLIPPED) {
-      // Help guest up — back to DECIDING
-      guest.setStatus(EGuestStatus.DECIDING);
+      // Help guest up — during closing/overtime just leave, otherwise walk back to seat
+      if (this._shiftManager.phase === "closing" || this._shiftManager.isOvertime) {
+        guest.setStatus(EGuestStatus.LEAVING);
+      } else if (guest.seatApplianceId) {
+        guest.setStatus(EGuestStatus.WALKING_TO_SEAT);
+        const path = this.pathfindGuestToSeat(guest, guest.seatApplianceId, guest.seatIndex);
+        guest.setPath(path);
+      } else {
+        guest.setStatus(EGuestStatus.LEAVING);
+      }
       this._pushEvent(EEngineEventType.GUEST_HELPED_UP, { guestId: guest.id });
       return;
     }
 
     if (guest.status === EGuestStatus.DRINKING) {
-      // Chat with guest (only if bartender is empty-handed)
-      if (!bartender.heldItemId) {
+      // Chat with guest (only if bartender is empty-handed and chat is available)
+      if (!bartender.heldItemId && guest.chatAvailable) {
         guest.chat();
       }
     }
@@ -571,9 +611,10 @@ export class Engine {
     const result = DrinkCrafter.resolveInteraction(heldItem, appliance);
 
     if (result.consumed) {
-      // Consumed — remove the item entirely (e.g. dirty glass washed at sink)
-      this._items.delete(heldItem.id);
-      bartender.setHeldItem(null, null);
+      // Delayed wash — start interact animation and consume when it finishes
+      this._pendingWash.set(bartender.number, { itemId: heldItem.id });
+      bartender.startInteract(GameSettings.washDuration);
+      return;
     } else if (result.newItemType !== null) {
       if (!appliance.hasStock()) return; // out of stock
       // Transform the held item
@@ -614,7 +655,16 @@ export class Engine {
 
     // Source appliances — pick up new items (empty-handed only)
     if (!heldItem) {
-      // Glass shelf is handled by sub-menu (bartenderSelect), skip here
+      // Glass shelf — direct grab (single glass type, no sub-menu)
+      if (appType === EApplianceType.GLASS_SHELF) {
+        if (!appliance.hasStock()) return; // out of stock
+        const item = new Item(EItemType.GLASS);
+        item.pickUp(bartender.id!);
+        this._items.set(item.id, item);
+        bartender.setHeldItem(item.id, item.type);
+        appliance.depleteStock();
+        return;
+      }
       if (appType === EApplianceType.CARD_HOLDER) {
         const item = new Item(EItemType.CUT_OFF_CARD);
         item.pickUp(bartender.id!);
@@ -885,6 +935,8 @@ export class Engine {
             targetX,
             targetY,
             true,
+            undefined,
+            this._occupiedTiles,
           );
         }
       }
@@ -908,6 +960,8 @@ export class Engine {
         appliance.gridX,
         appliance.gridY,
         true,
+        undefined,
+        this._occupiedTiles,
       );
     }
 
@@ -929,6 +983,8 @@ export class Engine {
       best.x,
       best.y,
       true,
+      undefined,
+      this._occupiedTiles,
     );
   }
 
@@ -950,8 +1006,68 @@ export class Engine {
   update() {
     const dt = 1 / GameSettings.tickRate;
 
+    // Police attention decay
+    if (this._policeAttention > 0) {
+      this._policeAttention = Math.max(0, this._policeAttention - GameSettings.policeAttentionDecayRate * dt);
+      // Reset warning trigger when attention drops below threshold
+      if (this._policeAttention < GameSettings.policeWarningThreshold) {
+        this._policeWarningTriggered = false;
+      }
+    }
+
+    // Police warning check
+    if (this._policeAttention >= GameSettings.policeWarningThreshold && !this._policeWarningTriggered) {
+      this._policeWarningTriggered = true;
+      this._pushEvent(EEngineEventType.POLICE_WARNING, {});
+    }
+
+    // Police raid check
+    if (this._policeAttention >= GameSettings.policeRaidThreshold) {
+      this._pushEvent(EEngineEventType.POLICE_RAID, { penalty: GameSettings.policeRaidMoneyPenalty });
+      this._money -= GameSettings.policeRaidMoneyPenalty;
+      this._reputation += GameSettings.policeRaidReputationPenalty;
+      this._shiftStats.reputationChange += GameSettings.policeRaidReputationPenalty;
+      this._shiftStats.policeRaids++;
+      this._policeRaidTimer = GameSettings.policeRaidDuration;
+      // Force-leave all guests over the overserve threshold
+      for (const guest of this._guests.values()) {
+        if (guest.drunkenness >= GameSettings.overserveDrunkennessThreshold &&
+            guest.status !== EGuestStatus.LEAVING) {
+          guest.setStatus(EGuestStatus.LEAVING);
+        }
+      }
+      this._policeAttention = 0;
+      this._policeWarningTriggered = false;
+    }
+
+    // Police raid timer — pause guest spawning during raid
+    if (this._policeRaidTimer > 0) {
+      this._policeRaidTimer -= dt;
+    }
+
     // Shift phase
     this._shiftManager.tick(dt);
+
+    // Early end of closing phase when all guests have left
+    if (this._shiftManager.phase === "closing" && !this._shiftManager.isOvertime && this._guests.size === 0) {
+      this._shiftManager.skipPhase(); // → prep, fires onPhaseChange
+    }
+
+    // Handle overtime
+    if (this._shiftManager.isOvertime) {
+      if (this._guests.size === 0) {
+        this._shiftManager.endOvertime();
+        this._pushEvent(EEngineEventType.SHIFT_SUMMARY, { ...this._shiftStats });
+        this._pushEvent(EEngineEventType.SHIFT_CHANGE, { phase: "prep" });
+      } else if (this._shiftManager.overtimeTimer >= GameSettings.overtimeHardCap) {
+        // Hard cap — force all remaining guests to leave
+        for (const guest of this._guests.values()) {
+          if (guest.status !== EGuestStatus.LEAVING) {
+            guest.setStatus(EGuestStatus.LEAVING);
+          }
+        }
+      }
+    }
 
     // Guest spawning
     this._guestSpawner.tick(dt);
@@ -992,7 +1108,22 @@ export class Engine {
     // Update bartenders
     for (const bartender of this._bartenders) {
       if (bartender.id === null) continue;
+      const wasInteracting = bartender.isInteracting;
       bartender.tick(dt, (x, y) => this._tileGrid.isWalkableForPlayer(x, y));
+
+      // Check pending wash completion
+      const wash = this._pendingWash.get(bartender.number);
+      if (wash) {
+        if (wasInteracting && !bartender.isInteracting) {
+          // Wash completed — consume the item
+          this._items.delete(wash.itemId);
+          bartender.setHeldItem(null, null);
+          this._pendingWash.delete(bartender.number);
+        } else if (bartender.isMoving) {
+          // Bartender moved — cancel wash
+          this._pendingWash.delete(bartender.number);
+        }
+      }
     }
 
     // Set leave paths for guests that just started leaving
@@ -1006,6 +1137,8 @@ export class Engine {
           entrance.x,
           entrance.y,
           true,
+          undefined,
+          this._occupiedTiles,
         );
         guest.setLeavePath(path);
       }
@@ -1152,6 +1285,86 @@ export class Engine {
       }
       this._guests.delete(id);
       this._pushEvent(EEngineEventType.GUEST_LEFT, { guestId: id, happiness: guest?.happiness ?? 0 });
+    }
+  }
+
+  /** Assign a last-call decision to a guest based on their current status. */
+  private _guestLastCallDecision(guest: Guest) {
+    const skip = [
+      EGuestStatus.LEAVING, EGuestStatus.FIGHTING, EGuestStatus.SLIPPED,
+      EGuestStatus.WALKING_TO_SEAT, EGuestStatus.WAITING_AT_DOOR,
+    ];
+    if (skip.includes(guest.status)) return;
+
+    if (guest.status === EGuestStatus.DRINKING) {
+      // Start chugging current drink
+      guest.setChugging(true);
+      // Decide: order one more, or finish and leave
+      if (
+        guest.roundsRemaining > 0 &&
+        Random.range(0, 1) < GameSettings.lastCallOrderChance &&
+        guest.drunkenness < guest.state.drunkGoal
+      ) {
+        guest.setLastCallDecision("ordering");
+      } else {
+        guest.setLastCallDecision("finishing");
+      }
+    } else if (
+      guest.status === EGuestStatus.DECIDING ||
+      guest.status === EGuestStatus.READY_TO_ORDER
+    ) {
+      if (
+        Random.range(0, 1) < GameSettings.lastCallOrderChance &&
+        guest.drunkenness < guest.state.drunkGoal
+      ) {
+        guest.setLastCallDecision("ordering");
+      } else {
+        guest.setLastCallDecision("leaving");
+      }
+    } else if (guest.status === EGuestStatus.WAITING_FOR_ORDER) {
+      // Wait for the drink they ordered, drink it, then leave
+      guest.setLastCallDecision("finishing");
+    } else if (
+      guest.status === EGuestStatus.QUEUED ||
+      guest.status === EGuestStatus.WALKING_TO_QUEUE
+    ) {
+      // Already committed to ordering
+      guest.setLastCallDecision("ordering");
+    } else if (guest.status === EGuestStatus.RETURNING_TO_SEAT) {
+      guest.setLastCallDecision("finishing");
+    }
+  }
+
+  /** Handle the transition from service to closing phase. */
+  private _handleClosingTransition() {
+    for (const guest of this._guests.values()) {
+      switch (guest.status) {
+        case EGuestStatus.DECIDING:
+        case EGuestStatus.READY_TO_ORDER:
+          // Too late to order — leave
+          guest.setStatus(EGuestStatus.LEAVING);
+          break;
+        case EGuestStatus.QUEUED:
+        case EGuestStatus.WALKING_TO_QUEUE:
+          // Too late — leave
+          this.freeQueueSlot(guest.id);
+          guest.setStatus(EGuestStatus.LEAVING);
+          break;
+        case EGuestStatus.DRINKING:
+          // Let them finish, then leave
+          guest.setLastCallDecision("finishing");
+          guest.setChugging(true);
+          break;
+        case EGuestStatus.WAITING_FOR_ORDER:
+          // Let the player serve what's pending
+          guest.setLastCallDecision("finishing");
+          break;
+        case EGuestStatus.RETURNING_TO_SEAT:
+          // Let them sit and drink
+          guest.setLastCallDecision("finishing");
+          break;
+        // LEAVING, FIGHTING, SLIPPED — leave as-is
+      }
     }
   }
 
