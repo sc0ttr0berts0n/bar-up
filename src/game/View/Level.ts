@@ -18,6 +18,11 @@ export class Level extends Container {
   private _applianceViews: ApplianceView[] = [];
   private _lightOverlay = new Graphics();
   private _lightTarget: number = 0;
+  private _flashOverlay = new Graphics();
+  private _flashAlpha = 0;
+  private _shakeTimer = 0;
+  private _baseCenterX = 0;
+  private _baseCenterY = 0;
 
   public get entityContainer() {
     return this._entityContainer;
@@ -90,6 +95,11 @@ export class Level extends Container {
     // Entity container goes on top
     this._scaleContainer.addChild(this._entityContainer);
 
+    // Overserve flash overlay — full-screen red, on top of everything
+    this._flashOverlay.rect(0, 0, totalW, totalH).fill(0xff0000);
+    this._flashOverlay.alpha = 0;
+    this._scaleContainer.addChild(this._flashOverlay);
+
     // Center the level in the viewport
     this._centerLevel();
   }
@@ -109,8 +119,10 @@ export class Level extends Container {
     // Center
     const scaledWidth = totalWidth * scale;
     const scaledHeight = totalHeight * scale;
-    this._scaleContainer.x = (window.innerWidth - scaledWidth) / 2;
-    this._scaleContainer.y = (window.innerHeight - scaledHeight) / 2;
+    this._baseCenterX = (window.innerWidth - scaledWidth) / 2;
+    this._baseCenterY = (window.innerHeight - scaledHeight) / 2;
+    this._scaleContainer.x = this._baseCenterX;
+    this._scaleContainer.y = this._baseCenterY;
   }
 
   /** Convert world pixel coordinates to screen coordinates */
@@ -127,7 +139,15 @@ export class Level extends Container {
     this._lightTarget = bright ? 0.1 : 0;
   }
 
+  /** Trigger red flash + screen shake for overserve */
+  triggerOverserveFlash() {
+    this._flashAlpha = 0.35;
+    this._shakeTimer = 0.3;
+  }
+
   update(_delta: Ticker) {
+    const dt = 1 / 60; // approximate frame time
+
     // Lerp light overlay toward target
     const diff = this._lightTarget - this._lightOverlay.alpha;
     if (Math.abs(diff) > 0.001) {
@@ -135,6 +155,27 @@ export class Level extends Container {
     } else {
       this._lightOverlay.alpha = this._lightTarget;
     }
+
+    // Flash overlay decay
+    if (this._flashAlpha > 0.001) {
+      this._flashAlpha *= 0.92;
+      this._flashOverlay.alpha = this._flashAlpha;
+    } else if (this._flashOverlay.alpha > 0) {
+      this._flashAlpha = 0;
+      this._flashOverlay.alpha = 0;
+    }
+
+    // Screen shake
+    if (this._shakeTimer > 0) {
+      this._shakeTimer -= dt;
+      const intensity = 3 * (this._shakeTimer / 0.3); // decay intensity
+      this._scaleContainer.x = this._baseCenterX + (Math.random() - 0.5) * 2 * intensity;
+      this._scaleContainer.y = this._baseCenterY + (Math.random() - 0.5) * 2 * intensity;
+    } else if (this._scaleContainer.x !== this._baseCenterX || this._scaleContainer.y !== this._baseCenterY) {
+      this._scaleContainer.x = this._baseCenterX;
+      this._scaleContainer.y = this._baseCenterY;
+    }
+
     // Render messes
     this._messLayer.clear();
     const messes = Communicator.state?.data?.messes;

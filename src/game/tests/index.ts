@@ -6,3 +6,4 @@ import "./test.serving";
 import "./test.items";
 import "./test.guests";
 import "./test.phases";
+import "./test.phase2";

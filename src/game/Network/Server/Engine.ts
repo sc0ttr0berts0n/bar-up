@@ -225,6 +225,11 @@ export class Engine {
     }
   }
 
+  /** Add money (used for extra player starting bonus) */
+  addMoney(amount: number) {
+    this._money += amount;
+  }
+
   unassignPlayerBartender(number: number) {
     const bartender = this._bartenders[number];
     if (bartender) {

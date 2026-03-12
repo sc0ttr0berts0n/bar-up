@@ -4,6 +4,7 @@ import { GameLoop } from "./GameLoop";
 import { Player } from "./Models/Player";
 import { PACKET_TYPE } from "../Communicator/PacketTypes";
 import config from "./server.settings";
+import GameSettings from "../../Shared/GameSettings";
 import type { IPlayerStateData } from "../../Shared/PlayerTypes";
 import type { IGuestStateData } from "../../Shared/GuestTypes";
 import type { IApplianceStateData } from "../../Shared/ApplianceTypes";
@@ -97,6 +98,11 @@ export class Game {
     this.engine.assignPlayerBartender(uuid, bartenderNumber);
     this._players.set(uuid, new Player(uuid, bartenderNumber));
     this.leaveAsSpectator(uuid);
+
+    // Bonus starting money for 2nd+ player
+    if (this._players.size > 1) {
+      this.engine.addMoney(GameSettings.moneyPerExtraPlayer);
+    }
   }
 
   leaveAsPlayerByUUID(uuid: UUID) {

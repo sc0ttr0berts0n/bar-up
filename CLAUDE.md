@@ -79,10 +79,4 @@ Service bar at (16,2) is 2-wide — counters at x=16,17 are removed to keep that
 
 ## Roadmap
 
-See plan file at `.claude/plans/gleaming-bouncing-muffin.md` for the 5-phase feature roadmap. Current status:
-- Phase 1A (Chatting): Done
-- Phase 1B (Guest Card HUD): Not started — next up
-- Phase 1C (Drink Preferences): Done
-- Phase 1D (Cut-off Card): Done
-- Phase 1E (Overserve Detection): Partially done (server logic, no visible feedback)
-- Phase 2+: Not started
+See `roadmap.md` for the full 6-phase feature roadmap. Phase 1 + Phase 2 complete. Phase 3 (economy & tipping) is next.

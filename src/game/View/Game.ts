@@ -477,6 +477,7 @@ class Game extends Singleton<Game>() {
       case EEngineEventType.MONEY_EARNED:
         return { message: `+$${data.amount}`, color: "#ffd93d" };
       case EEngineEventType.GUEST_OVERSERVED:
+        this.level?.triggerOverserveFlash();
         return { message: "Overserved!", color: "#ff4444" };
       case EEngineEventType.POLICE_WARNING:
         return { message: "Police are watching!", color: "#ff8800" };
