@@ -1,6 +1,6 @@
 import { DEFAULT_BAR_LAYOUT, type IBarLayout } from "../../Shared/BarLayout";
 import { EApplianceType, SEAT_OFFSETS } from "../../Shared/ApplianceTypes";
-import { EItemType, GLASS_TYPES } from "../../Shared/ItemTypes";
+import { EItemType } from "../../Shared/ItemTypes";
 import { EDirection, ETileZone } from "../../Shared/TileTypes";
 import { RECIPES, getMenuDrinkKeys, APPLIANCE_VARIANTS, GRAB_VARIANTS } from "../../Shared/DrinkRecipes";
 import { EGuestStatus, EGuestTrait } from "../../Shared/GuestTypes";
@@ -13,11 +13,36 @@ import { Pathfinding } from "./Pathfinding";
 import { Bartender } from "./GameObjects/Bartender";
 import { Guest } from "./GameObjects/Guest";
 import { Appliance } from "./GameObjects/Appliance";
+import { Widget, type IWidgetContext } from "./GameObjects/Widget";
 import { Item } from "./GameObjects/Item";
-import { DrinkCrafter } from "./GameObjects/DrinkCrafter";
+
 import { GuestSpawner } from "./GameObjects/GuestSpawner";
 import { ShiftManager } from "./GameObjects/ShiftManager";
+import {
+  WIDGET_BIN, WIDGET_CARD_HOLDER, WIDGET_GLASS_SHELF, WIDGET_SERVICE_BAR,
+  WIDGET_COUNTER, WIDGET_HIGHTOP, WIDGET_TABLE, WIDGET_BAR_QUEUE,
+  WIDGET_DRAFT_SYSTEM, WIDGET_WINE_RACK, WIDGET_LIQUOR_RAIL,
+  WIDGET_ICE_WELL, WIDGET_SINK,
+  type IWidgetConfig,
+} from "../../Shared/WidgetTypes";
 import type { Game } from "./Game";
+
+/** Widget configs keyed by appliance type — all 13 types are now Widgets */
+const WIDGET_CONFIGS: Partial<Record<EApplianceType, IWidgetConfig>> = {
+  [EApplianceType.BIN]: WIDGET_BIN,
+  [EApplianceType.CARD_HOLDER]: WIDGET_CARD_HOLDER,
+  [EApplianceType.GLASS_SHELF]: WIDGET_GLASS_SHELF,
+  [EApplianceType.SERVICE_BAR]: WIDGET_SERVICE_BAR,
+  [EApplianceType.COUNTER]: WIDGET_COUNTER,
+  [EApplianceType.HIGHTOP]: WIDGET_HIGHTOP,
+  [EApplianceType.TABLE]: WIDGET_TABLE,
+  [EApplianceType.BAR_QUEUE]: WIDGET_BAR_QUEUE,
+  [EApplianceType.DRAFT_SYSTEM]: WIDGET_DRAFT_SYSTEM,
+  [EApplianceType.WINE_RACK]: WIDGET_WINE_RACK,
+  [EApplianceType.LIQUOR_RAIL]: WIDGET_LIQUOR_RAIL,
+  [EApplianceType.ICE_WELL]: WIDGET_ICE_WELL,
+  [EApplianceType.SINK]: WIDGET_SINK,
+};
 
 export class Engine {
   private _game: Game;
@@ -42,7 +67,27 @@ export class Engine {
   private _barQueue: Appliance | null = null;
   private _queueSlots: { position: Vec2; guestId: string | null }[] = [];
   private _occupiedTiles: Set<string> = new Set();
-  private _pendingWash: Map<number, { itemId: string }> = new Map(); // keyed by bartender number
+  private _pendingWash: Map<number, { itemId: string; callback?: () => void }> = new Map();
+  private _widgetContext: IWidgetContext = {
+    createItem: (type: EItemType) => {
+      const item = new Item(type);
+      this._items.set(item.id, item);
+      return item;
+    },
+    deleteItem: (id: string) => {
+      this._items.delete(id);
+    },
+    getItem: (id: string) => {
+      return this._items.get(id) ?? null;
+    },
+    startTimedInteract: (bartender, duration, onComplete) => {
+      bartender.startInteract(duration);
+      this._pendingWash.set(bartender.number, { itemId: "widget", callback: onComplete });
+    },
+    pushEvent: (type, data) => {
+      this._pushEvent(type as EEngineEventType, data);
+    },
+  };
 
   constructor(game: Game) {
     this._game = game;
@@ -50,9 +95,12 @@ export class Engine {
     this._tileGrid = new TileGrid(this._layout);
     this._money = GameSettings.startingMoney;
 
-    // Create appliances from layout
+    // Create appliances from layout (Widget-backed types use Widget, others use Appliance)
     for (const placement of this._layout.appliances) {
-      const appliance = new Appliance(placement.type, placement.gridX, placement.gridY);
+      const widgetConfig = WIDGET_CONFIGS[placement.type];
+      const appliance = widgetConfig
+        ? new Widget(widgetConfig, placement.gridX, placement.gridY)
+        : new Appliance(placement.type, placement.gridX, placement.gridY);
       this._appliances.set(appliance.id, appliance);
       // Mark tiles as occupied by this appliance
       for (let dy = 0; dy < appliance.sizeY; dy++) {
@@ -610,114 +658,17 @@ export class Engine {
       ? this._items.get(bartender.heldItemId) ?? null
       : null;
 
-    // Crafting only works when holding something
-    if (!heldItem) return;
-
-    const result = DrinkCrafter.resolveInteraction(heldItem, appliance);
-
-    if (result.consumed) {
-      // Delayed wash — start interact animation and consume when it finishes
-      this._pendingWash.set(bartender.number, { itemId: heldItem.id });
-      bartender.startInteract(GameSettings.washDuration);
-      return;
-    } else if (result.newItemType !== null) {
-      if (!appliance.hasStock()) return; // out of stock
-      // Transform the held item
-      heldItem.setType(result.newItemType);
-      bartender.setHeldItem(heldItem.id, heldItem.type);
-      appliance.depleteStock();
-      this._pushEvent(EEngineEventType.ITEM_CRAFTED, {
-        itemType: result.newItemType,
-        playerId: bartender.id,
-      });
+    // All appliance types are now Widgets — config-driven behavior
+    if (appliance instanceof Widget) {
+      appliance.handleInteract(bartender, heldItem, this._widgetContext);
     }
   }
 
   /** Grab button — pick up / put down / bin / source appliances */
   private _handleGrabInteraction(bartender: Bartender, appliance: Appliance, heldItem: Item | null) {
-    const appType = appliance.type;
-
-    // Bin handling
-    if (appType === EApplianceType.BIN) {
-      if (heldItem && heldItem.type !== EItemType.TRASH_BAG) {
-        // Toss held item into bin (if room)
-        if (appliance.hasOpenSlot()) {
-          const slot = appliance.getFirstOpenSlotIndex();
-          this._items.delete(heldItem.id);
-          appliance.setSlot(slot, "trash");
-          bartender.setHeldItem(null, null);
-        }
-      } else if (!heldItem && appliance.hasAnyItem()) {
-        // Pick up trash bag
-        appliance.clearSlots();
-        const bag = new Item(EItemType.TRASH_BAG);
-        bag.pickUp(bartender.id!);
-        this._items.set(bag.id, bag);
-        bartender.setHeldItem(bag.id, bag.type);
-      }
-      return;
-    }
-
-    // Source appliances — pick up new items (empty-handed only)
-    if (!heldItem) {
-      // Glass shelf — direct grab (single glass type, no sub-menu)
-      if (appType === EApplianceType.GLASS_SHELF) {
-        if (!appliance.hasStock()) return; // out of stock
-        const item = new Item(EItemType.GLASS);
-        item.pickUp(bartender.id!);
-        this._items.set(item.id, item);
-        bartender.setHeldItem(item.id, item.type);
-        appliance.depleteStock();
-        return;
-      }
-      if (appType === EApplianceType.CARD_HOLDER) {
-        const item = new Item(EItemType.CUT_OFF_CARD);
-        item.pickUp(bartender.id!);
-        this._items.set(item.id, item);
-        bartender.setHeldItem(item.id, item.type);
-        return;
-      }
-      // Pick up first item from a surface with items (counter, service bar)
-      if (appliance.hasAnyItem()) {
-        // Find the first occupied slot
-        const slots = appliance.state.slots;
-        for (let i = 0; i < slots.length; i++) {
-          if (slots[i] !== null) {
-            const existingItem = this._items.get(slots[i]!);
-            if (existingItem) {
-              existingItem.pickUp(bartender.id!);
-              appliance.setSlot(i, null);
-              bartender.setHeldItem(existingItem.id, existingItem.type);
-              return;
-            }
-          }
-        }
-      }
-      return;
-    }
-
-    // Holding an item — put down on surfaces
-    // Return to source: any glass → glass shelf, card → card holder
-    if (GLASS_TYPES.has(heldItem.type) && appType === EApplianceType.GLASS_SHELF) {
-      this._items.delete(heldItem.id);
-      bartender.setHeldItem(null, null);
-      return;
-    }
-    if (heldItem.type === EItemType.CUT_OFF_CARD && appType === EApplianceType.CARD_HOLDER) {
-      this._items.delete(heldItem.id);
-      bartender.setHeldItem(null, null);
-      return;
-    }
-
-    // Put down on any surface with open slots (counter, service bar, bar queue)
-    if (
-      (appType === EApplianceType.COUNTER || appType === EApplianceType.SERVICE_BAR || appType === EApplianceType.BAR_QUEUE) &&
-      appliance.hasOpenSlot()
-    ) {
-      const slot = appliance.getFirstOpenSlotIndex();
-      heldItem.placeOnAppliance(appliance.id, slot);
-      appliance.setSlot(slot, heldItem.id);
-      bartender.setHeldItem(null, null);
+    // All appliance types are now Widgets — config-driven behavior
+    if (appliance instanceof Widget) {
+      appliance.handleGrab(bartender, heldItem, this._widgetContext);
     }
   }
 
@@ -1116,16 +1067,20 @@ export class Engine {
       const wasInteracting = bartender.isInteracting;
       bartender.tick(dt, (x, y) => this._tileGrid.isWalkableForPlayer(x, y));
 
-      // Check pending wash completion
+      // Check pending wash/transform completion
       const wash = this._pendingWash.get(bartender.number);
       if (wash) {
         if (wasInteracting && !bartender.isInteracting) {
-          // Wash completed — consume the item
-          this._items.delete(wash.itemId);
-          bartender.setHeldItem(null, null);
+          // Completed — use callback if present (Widget), otherwise legacy delete
+          if (wash.callback) {
+            wash.callback();
+          } else {
+            this._items.delete(wash.itemId);
+            bartender.setHeldItem(null, null);
+          }
           this._pendingWash.delete(bartender.number);
         } else if (bartender.isMoving) {
-          // Bartender moved — cancel wash
+          // Bartender moved — cancel
           this._pendingWash.delete(bartender.number);
         }
       }

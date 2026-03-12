@@ -94,15 +94,35 @@ Make co-op deeper and add reasons to keep playing.
 
 ---
 
+## Widget System (architectural refactor) ✅
+
+Config-driven appliance behavior. All 13 appliance types ported. Engine.ts switch trees and DrinkCrafter.ts removed.
+
+| ID | Feature | Detail | Status |
+|----|---------|--------|--------|
+| W1 | Widget framework | `Widget` class, `IWidgetConfig`, `IWidgetContext`, Engine delegation via `instanceof Widget` | ✅ Done |
+| W2 | BIN port | First Widget-backed appliance — trash collect mode, 3 top slots, place-only | ✅ Done |
+| W3 | CARD_HOLDER port | Infinite `sourceItem = CUT_OFF_CARD`, `returnableItems = [CUT_OFF_CARD]`, no slots | ✅ Done |
+| W4 | GLASS_SHELF port | `sourceItem = GLASS`, stock tracked, `returnableItems = [GLASS]` | ✅ Done |
+| W5 | COUNTER port | 1 top slot, 1 south seat, place/pickup | ✅ Done |
+| W6 | TABLE / HIGHTOP port | Seats only (4 per-edge seats), no slots | ✅ Done |
+| W7 | SERVICE_BAR port | 8 top slots, normal mode (place + pickup via `getItem`) | ✅ Done |
+| W8 | DRAFT / WINE / LIQUOR port | `storageVariants`, craft via sub-menu, stock tracked | ✅ Done |
+| W9 | SINK / ICE_WELL port | Transforms: ICE_WELL instant (spirit→HIGHBALL), SINK timed (`startTimedInteract`) | ✅ Done |
+| W10 | BAR_QUEUE port | 6 top slots, 3-wide, normal mode | ✅ Done |
+| W11 | Remove old Engine.ts switch tree | Deleted legacy grab/craft switch trees + DrinkCrafter.ts | ✅ Done |
+| W-D1 | Wine bottles / kegs | Storage → surface → pour until empty. Kegs = big bottles. | Deferred |
+| W-D2 | User-configurable sizing + level editor | Dev tool for building appliances; user placement between shifts (prep phase) | Deferred |
+
+---
+
 ## Priority Order
 
-**Immediate** (next sessions): Phase 2 — finish what's half-built before adding new systems.
-
-**Short-term**: Phase 3 — economy gives the game a goal and makes decisions matter.
+**Immediate**: Phase 3 — economy gives the game a goal and makes decisions matter. Widget migration is complete (all 13 types ported).
 
 **Medium-term**: Phase 4 + 5 — content and polish in parallel.
 
-**Long-term**: Phase 6 — multiplayer depth once core is solid.
+**Long-term**: Phase 6 — multiplayer depth once core is solid. Widget deferred items (W-D1, W-D2) fit here too.
 
 ---
 
@@ -110,5 +130,5 @@ Make co-op deeper and add reasons to keep playing.
 
 - Each phase item should be its own commit or small PR
 - Update this file when items are completed or priorities shift
-- Test suite exists: 32 in-browser tests (`__TEST.runAll()`) + 85 Vitest unit tests (`npx vitest run`) — add tests for new features
+- Test suite: 45 in-browser tests (`__TEST.runAll()`) + 217 Vitest unit tests (`npx vitest run`) — add tests for new features
 - Build validation: `npx vite build` (not `npm run build`)

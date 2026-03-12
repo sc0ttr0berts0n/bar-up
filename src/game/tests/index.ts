@@ -7,3 +7,4 @@ import "./test.items";
 import "./test.guests";
 import "./test.phases";
 import "./test.phase2";
+import "./test.behaviors";
