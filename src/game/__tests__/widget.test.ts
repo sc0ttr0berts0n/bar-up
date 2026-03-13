@@ -293,6 +293,39 @@ describe("Widget GLASS_SHELF handleGrab", () => {
     expect(ctx.items.has(glass.id)).toBe(false);
   });
 
+  it("returning GLASS restores stock", () => {
+    const w = new Widget(WIDGET_GLASS_SHELF, 1, 1);
+    const bt = mockBartender();
+    const ctx = mockContext();
+
+    // Take a glass (depletes stock by 1)
+    w.handleGrab(bt, null, ctx);
+    const stockAfterTake = w.currentStock;
+    const glass = ctx.items.get(bt.heldItemId!)!;
+
+    // Return the glass
+    w.handleGrab(bt, glass, ctx);
+
+    expect(w.currentStock).toBe(stockAfterTake + 1);
+    expect(bt.heldItemId).toBeNull();
+  });
+
+  it("returning GLASS does not exceed max stock", () => {
+    const w = new Widget(WIDGET_GLASS_SHELF, 1, 1);
+    const bt = mockBartender();
+    const ctx = mockContext();
+
+    // Stock is already at max (30)
+    expect(w.currentStock).toBe(w.maxStock);
+
+    // Give bartender a glass manually and return it
+    const glass = giveItem(bt, EItemType.GLASS, ctx);
+    w.handleGrab(bt, glass, ctx);
+
+    // Should not exceed max
+    expect(w.currentStock).toBe(w.maxStock);
+  });
+
   it("out of stock returns handled but no item", () => {
     const w = new Widget(WIDGET_GLASS_SHELF, 1, 1);
     // Deplete all stock
@@ -677,7 +710,7 @@ describe("Widget SINK handleInteract", () => {
     expect(ctx.items.has(dirtyGlass.id)).toBe(true);
   });
 
-  it("timed callback deletes dirty glass (wash complete)", () => {
+  it("timed callback transforms dirty glass into clean glass (wash complete)", () => {
     const w = new Widget(WIDGET_SINK, 14, 1);
     const bt = mockBartender();
     const ctx = mockContext();
@@ -687,8 +720,11 @@ describe("Widget SINK handleInteract", () => {
     // Simulate wash completion
     ctx.timedCallback!();
 
-    expect(ctx.items.has(dirtyGlass.id)).toBe(false);
-    expect(bt.heldItemId).toBeNull();
+    // Item still exists but transformed to clean glass
+    expect(ctx.items.has(dirtyGlass.id)).toBe(true);
+    expect(dirtyGlass.type).toBe(EItemType.GLASS);
+    expect(bt.heldItemId).toBe(dirtyGlass.id);
+    expect(bt.state.heldItemType).toBe(EItemType.GLASS);
   });
 
   it("rejects non-dirty-glass items", () => {

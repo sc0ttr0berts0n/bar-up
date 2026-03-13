@@ -5,7 +5,7 @@ import Communicator from "../Network/Communicator/Communicator";
 import { TileGridView } from "./TileGridView";
 import { ApplianceView } from "./ApplianceView";
 import { DEFAULT_BAR_LAYOUT } from "../Shared/BarLayout";
-import { EApplianceType, APPLIANCE_CONFIGS, SEAT_OFFSETS } from "../Shared/ApplianceTypes";
+import { EApplianceType, APPLIANCE_CONFIGS, SEAT_OFFSETS, type IApplianceStateData } from "../Shared/ApplianceTypes";
 
 export class Level extends Container {
   private _scaleContainer = new Container();
@@ -15,7 +15,6 @@ export class Level extends Container {
   private _itemPool: { bg: Graphics; label: Text }[] = [];
   private _capacityPool: Text[] = [];
   private _tileGridView: TileGridView;
-  private _applianceViews: ApplianceView[] = [];
   private _lightOverlay = new Graphics();
   private _lightTarget: number = 0;
   private _flashOverlay = new Graphics();
@@ -23,6 +22,14 @@ export class Level extends Container {
   private _shakeTimer = 0;
   private _baseCenterX = 0;
   private _baseCenterY = 0;
+
+  // ── Dynamic appliance rendering ──
+  private _applianceLayer = new Container();
+  private _applianceViewMap = new Map<string, ApplianceView>();
+  private _chairLayer = new Graphics();
+  // Ghost preview for edit mode
+  private _ghostView: ApplianceView | null = null;
+  private _ghostType: EApplianceType | null = null;
 
   public get entityContainer() {
     return this._entityContainer;
@@ -53,38 +60,11 @@ export class Level extends Container {
     this._lightOverlay.alpha = 0;
     this._scaleContainer.addChild(this._lightOverlay);
 
-    // Create appliance visuals
-    for (const placement of layout.appliances) {
-      const config = APPLIANCE_CONFIGS[placement.type];
-      const view = new ApplianceView(
-        config,
-        placement.gridX,
-        placement.gridY,
-        GameSettings.tileSize,
-      );
-      this._scaleContainer.addChild(view);
-      this._applianceViews.push(view);
-    }
+    // Appliance layer (dynamic — synced from server state)
+    this._scaleContainer.addChild(this._applianceLayer);
 
-    // Chair markers at seating appliances
-    const chairLayer = new Graphics();
-    const ts = GameSettings.tileSize;
-    const chairW = ts * 0.35;
-    const chairH = ts * 0.3;
-    const chairR = 4;
-    for (const placement of layout.appliances) {
-      const offsets = SEAT_OFFSETS[placement.type];
-      if (!offsets) continue;
-      const cx = placement.gridX * ts + ts / 2;
-      const cy = placement.gridY * ts + ts / 2;
-      for (const [dx, dy] of offsets) {
-        const sx = cx + dx * ts - chairW / 2;
-        const sy = cy + dy * ts - chairH / 2;
-        chairLayer.roundRect(sx, sy, chairW, chairH, chairR).fill(0x5c3a1e);
-        chairLayer.roundRect(sx, sy, chairW, chairH, chairR).stroke({ color: 0x3a2412, width: 1 });
-      }
-    }
-    this._scaleContainer.addChild(chairLayer);
+    // Chair layer (redrawn when appliances change)
+    this._scaleContainer.addChild(this._chairLayer);
 
     // Mess layer between appliances and entities
     this._scaleContainer.addChild(this._messLayer);
@@ -145,6 +125,118 @@ export class Level extends Container {
     this._shakeTimer = 0.3;
   }
 
+  // ── Dynamic appliance sync ─────────────────────────────────────
+
+  private _syncAppliances(appliances: IApplianceStateData[]) {
+    const ts = GameSettings.tileSize;
+    const activeIds = new Set<string>();
+    let chairsDirty = false;
+
+    for (const a of appliances) {
+      activeIds.add(a.id);
+      const existing = this._applianceViewMap.get(a.id);
+
+      if (existing) {
+        // Check if position changed
+        const expectedX = a.gridX * ts + 2;
+        const expectedY = a.gridY * ts + 2;
+        if (existing.x !== expectedX || existing.y !== expectedY) {
+          existing.reposition(a.gridX, a.gridY);
+          chairsDirty = true;
+        }
+      } else {
+        // Create new ApplianceView
+        const config = APPLIANCE_CONFIGS[a.type];
+        if (!config) continue;
+        const view = new ApplianceView(config, a.gridX, a.gridY, ts);
+        this._applianceLayer.addChild(view);
+        this._applianceViewMap.set(a.id, view);
+        chairsDirty = true;
+      }
+    }
+
+    // Remove views for appliances no longer in server state
+    for (const [id, view] of this._applianceViewMap) {
+      if (!activeIds.has(id)) {
+        this._applianceLayer.removeChild(view);
+        view.destroy();
+        this._applianceViewMap.delete(id);
+        chairsDirty = true;
+      }
+    }
+
+    // Redraw chair markers if anything moved
+    if (chairsDirty) {
+      this._redrawChairs(appliances);
+    }
+  }
+
+  private _redrawChairs(appliances: IApplianceStateData[]) {
+    this._chairLayer.clear();
+    const ts = GameSettings.tileSize;
+    const chairW = ts * 0.35;
+    const chairH = ts * 0.3;
+    const chairR = 4;
+
+    for (const a of appliances) {
+      const offsets = SEAT_OFFSETS[a.type];
+      if (!offsets) continue;
+      const cx = a.gridX * ts + ts / 2;
+      const cy = a.gridY * ts + ts / 2;
+      for (const [dx, dy] of offsets) {
+        const sx = cx + dx * ts - chairW / 2;
+        const sy = cy + dy * ts - chairH / 2;
+        this._chairLayer.roundRect(sx, sy, chairW, chairH, chairR).fill(0x5c3a1e);
+        this._chairLayer.roundRect(sx, sy, chairW, chairH, chairR).stroke({ color: 0x3a2412, width: 1 });
+      }
+    }
+  }
+
+  // ── Edit mode ghost preview ────────────────────────────────────
+
+  /**
+   * Show a ghost appliance preview at the given grid position.
+   * Pass null type to clear.
+   */
+  showGhostPreview(type: EApplianceType | null, gridX: number, gridY: number, valid: boolean) {
+    const ts = GameSettings.tileSize;
+
+    if (type === null) {
+      if (this._ghostView) {
+        this._applianceLayer.removeChild(this._ghostView);
+        this._ghostView.destroy();
+        this._ghostView = null;
+        this._ghostType = null;
+      }
+      return;
+    }
+
+    const config = APPLIANCE_CONFIGS[type];
+    if (!config) return;
+
+    // Recreate if type changed
+    if (this._ghostType !== type) {
+      if (this._ghostView) {
+        this._applianceLayer.removeChild(this._ghostView);
+        this._ghostView.destroy();
+      }
+      this._ghostView = new ApplianceView(config, gridX, gridY, ts);
+      this._ghostView.setGhost(0.5);
+      this._applianceLayer.addChild(this._ghostView);
+      this._ghostType = type;
+    }
+
+    this._ghostView!.reposition(gridX, gridY);
+    this._ghostView!.setHighlight(valid ? 0x44ff44 : 0xff4444);
+  }
+
+  /** Highlight an appliance by ID (for edit mode selection). Pass null to clear all. */
+  highlightAppliance(id: string | null) {
+    for (const [viewId, view] of this._applianceViewMap) {
+      view.setHighlight(viewId === id ? 0x44aaff : null);
+    }
+  }
+
   update(_delta: Ticker) {
     const dt = 1 / 60; // approximate frame time
 
@@ -176,6 +268,12 @@ export class Level extends Container {
       this._scaleContainer.y = this._baseCenterY;
     }
 
+    // Sync appliance views from server state
+    const data = Communicator.state?.data;
+    if (data) {
+      this._syncAppliances(data.appliances);
+    }
+
     // Render messes
     this._messLayer.clear();
     const messes = Communicator.state?.data?.messes;
@@ -191,7 +289,6 @@ export class Level extends Container {
     }
 
     // Render items on appliances
-    const data = Communicator.state?.data;
     if (data) {
       const ts = GameSettings.tileSize;
       // Build appliance lookup
@@ -239,9 +336,9 @@ export class Level extends Container {
         }
       }
 
-      // Capacity labels for BIN and SINK appliances
+      // Capacity labels for appliances with slots (BIN/SINK) or stock
       const capacityAppliances = data.appliances.filter(
-        (a) => a.type === EApplianceType.BIN || a.type === EApplianceType.SINK,
+        (a) => (a.maxSlots > 0 || a.maxStock > 0) && a.type !== EApplianceType.COUNTER,
       );
 
       // Grow pool if needed
@@ -259,13 +356,22 @@ export class Level extends Container {
         const capLabel = this._capacityPool[i];
         if (i < capacityAppliances.length) {
           const app = capacityAppliances[i];
-          const filled = app.slots.filter((s) => s !== null).length;
           const cx = app.gridX * ts + ts / 2;
           const cy = app.gridY * ts + ts + 2; // below the appliance tile
-          capLabel.text = `${filled}/${app.maxSlots}`;
+
+          if (app.maxStock > 0) {
+            // Stock-based (Glass, Draft, Wine, Liquor, ICE)
+            capLabel.text = `${app.currentStock}/${app.maxStock}`;
+            capLabel.style.fill = app.currentStock === 0 ? 0xff4444 : app.currentStock <= Math.ceil(app.maxStock * 0.25) ? 0xffaa44 : 0xaaaaaa;
+          } else {
+            // Slot-based (BIN, SINK)
+            const filled = app.slots.filter((s) => s !== null).length;
+            capLabel.text = `${filled}/${app.maxSlots}`;
+            capLabel.style.fill = filled >= app.maxSlots ? 0xff4444 : 0xaaaaaa;
+          }
+
           capLabel.x = cx;
           capLabel.y = cy;
-          capLabel.style.fill = filled >= app.maxSlots ? 0xff4444 : 0xaaaaaa;
           capLabel.visible = true;
         } else {
           capLabel.visible = false;

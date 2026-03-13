@@ -11,6 +11,11 @@ import {
   type INetworkPacketClientInteract,
   type INetworkPacketClientGrab,
   type INetworkPacketClientSelect,
+  type INetworkPacketClientEditPickUp,
+  type INetworkPacketClientEditPlace,
+  type INetworkPacketClientEditExit,
+  type INetworkPacketClientEditCancel,
+  type INetworkPacketClientUpgradePurchase,
   PACKET_TYPE,
   EEngineEventType,
 } from "../Network/Communicator/PacketTypes";
@@ -25,6 +30,7 @@ import { Level } from "./Level";
 import { BartenderView } from "./Player/BartenderView";
 import { GuestView } from "./GuestView";
 import { store } from "../../store/global";
+import { UPGRADE_CONFIGS } from "../Shared/UpgradeTypes";
 
 type HostOrJoinResolver =
   | (({ choice, peerID }: { choice: EHost; peerID?: UUID }) => void)
@@ -118,6 +124,18 @@ class Game extends Singleton<Game>() {
       }
 
       this._keysDown.add(key);
+
+      // Upgrade panel input takes priority
+      if (store.upgradePanel.visible) {
+        this._handleUpgradePanelKey(key);
+        return;
+      }
+
+      // Edit mode input takes priority over normal gameplay
+      if (store.editMode.active) {
+        this._handleEditModeKey(key);
+        return;
+      }
 
       switch (key) {
         case "w":
@@ -317,6 +335,165 @@ class Game extends Singleton<Game>() {
     store.submenu.visible = false;
   }
 
+  // ── Edit mode input ──────────────────────────────────────────
+
+  private _handleEditModeKey(key: string) {
+    // Movement still works in edit mode (WASD/arrows)
+    switch (key) {
+      case "w":
+      case "arrowup":
+        this._sendMove(EDirection.UP);
+        return;
+      case "s":
+      case "arrowdown":
+        this._sendMove(EDirection.DOWN);
+        return;
+      case "a":
+      case "arrowleft":
+        this._sendMove(EDirection.LEFT);
+        return;
+      case "d":
+      case "arrowright":
+        this._sendMove(EDirection.RIGHT);
+        return;
+    }
+
+    const data = Communicator.state?.data;
+    if (!data?.editMode) return;
+    const localPlayer = data.players.find((p) => p.id === Communicator.uuid);
+    if (!localPlayer) return;
+
+    const holding = data.editMode.heldApplianceId !== null;
+
+    switch (key) {
+      case "e":
+      case " ":
+        if (holding) {
+          // Place held appliance at facing tile
+          let fx = localPlayer.gridX;
+          let fy = localPlayer.gridY;
+          switch (localPlayer.facing) {
+            case EDirection.UP: fy--; break;
+            case EDirection.DOWN: fy++; break;
+            case EDirection.LEFT: fx--; break;
+            case EDirection.RIGHT: fx++; break;
+          }
+          Communicator.sendToServer<INetworkPacketClientEditPlace>({
+            uuid: Communicator.uuid,
+            type: PACKET_TYPE.CLIENT_EDIT_PLACE,
+            data: { gridX: fx, gridY: fy },
+          });
+        } else {
+          // Pick up appliance at facing tile
+          const facingApp = this._findFacingAppliance(localPlayer, data.appliances);
+          if (facingApp) {
+            Communicator.sendToServer<INetworkPacketClientEditPickUp>({
+              uuid: Communicator.uuid,
+              type: PACKET_TYPE.CLIENT_EDIT_PICK_UP,
+              data: { applianceId: facingApp.id },
+            });
+          }
+        }
+        break;
+      case "escape":
+        if (holding) {
+          // Cancel current hold (return to original position)
+          Communicator.sendToServer<INetworkPacketClientEditCancel>({
+            uuid: Communicator.uuid,
+            type: PACKET_TYPE.CLIENT_EDIT_CANCEL,
+          });
+        } else {
+          // Exit edit mode without saving (rollback)
+          Communicator.sendToServer<INetworkPacketClientEditExit>({
+            uuid: Communicator.uuid,
+            type: PACKET_TYPE.CLIENT_EDIT_EXIT,
+            data: { commit: false },
+          });
+        }
+        break;
+      case "enter":
+        // Commit and exit edit mode
+        Communicator.sendToServer<INetworkPacketClientEditExit>({
+          uuid: Communicator.uuid,
+          type: PACKET_TYPE.CLIENT_EDIT_EXIT,
+          data: { commit: true },
+        });
+        break;
+    }
+  }
+
+  private _handleUpgradePanelKey(key: string) {
+    // Count available upgrades (those not yet maxed)
+    const available = UPGRADE_CONFIGS.filter(c => {
+      const level = store.upgrades.levels[c.id] ?? 0;
+      return level < c.maxLevel;
+    });
+    const maxIndex = available.length - 1;
+
+    switch (key) {
+      case "w":
+      case "arrowup":
+        store.upgradePanel.selectedIndex = Math.max(0, store.upgradePanel.selectedIndex - 1);
+        break;
+      case "s":
+      case "arrowdown":
+        store.upgradePanel.selectedIndex = Math.min(maxIndex, store.upgradePanel.selectedIndex + 1);
+        break;
+      case " ":
+      case "enter": {
+        const selected = available[store.upgradePanel.selectedIndex];
+        if (selected) {
+          Communicator.sendToServer<INetworkPacketClientUpgradePurchase>({
+            uuid: Communicator.uuid,
+            type: PACKET_TYPE.CLIENT_UPGRADE_PURCHASE,
+            data: { upgradeId: selected.id },
+          });
+        }
+        break;
+      }
+      case "escape":
+        store.upgradePanel.visible = false;
+        break;
+      case "1":
+      case "2":
+      case "3": {
+        const idx = parseInt(key) - 1;
+        if (idx <= maxIndex) {
+          store.upgradePanel.selectedIndex = idx;
+          const selected = available[idx];
+          if (selected) {
+            Communicator.sendToServer<INetworkPacketClientUpgradePurchase>({
+              uuid: Communicator.uuid,
+              type: PACKET_TYPE.CLIENT_UPGRADE_PURCHASE,
+              data: { upgradeId: selected.id },
+            });
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  /** Find the appliance on the facing tile (for edit mode pick-up). */
+  private _findFacingAppliance(
+    player: IPlayerStateData,
+    appliances: IApplianceStateData[],
+  ): IApplianceStateData | undefined {
+    let fx = player.gridX;
+    let fy = player.gridY;
+    switch (player.facing) {
+      case EDirection.UP: fy--; break;
+      case EDirection.DOWN: fy++; break;
+      case EDirection.LEFT: fx--; break;
+      case EDirection.RIGHT: fx++; break;
+    }
+    // Check if any appliance occupies the facing tile (including multi-tile appliances)
+    return appliances.find((a) =>
+      fx >= a.gridX && fx < a.gridX + a.sizeX &&
+      fy >= a.gridY && fy < a.gridY + a.sizeY,
+    );
+  }
+
   update(delta: Ticker) {
     this._syncState();
 
@@ -359,6 +536,39 @@ class Game extends Singleton<Game>() {
     store.isLastCall = data.isLastCall;
     store.isOvertime = data.isOvertime;
 
+    // Sync edit mode state
+    if (data.editMode) {
+      store.editMode.active = data.editMode.active;
+      store.editMode.heldType = data.editMode.heldApplianceType;
+      store.editMode.placementValid = data.editMode.placementValid;
+
+      // Ghost preview rendering
+      if (data.editMode.heldApplianceId && data.editMode.heldApplianceType) {
+        this.level?.showGhostPreview(
+          data.editMode.heldApplianceType,
+          data.editMode.previewX,
+          data.editMode.previewY,
+          data.editMode.placementValid,
+        );
+      } else {
+        this.level?.showGhostPreview(null, 0, 0, false);
+      }
+    } else if (store.editMode.active) {
+      // Edit mode was deactivated
+      store.editMode.active = false;
+      store.editMode.heldType = null;
+      store.editMode.placementValid = false;
+      this.level?.showGhostPreview(null, 0, 0, false);
+    }
+
+    // Sync upgrade state
+    store.upgrades = data.upgrades;
+
+    // Auto-hide upgrade panel when leaving prep
+    if (store.upgradePanel.visible && data.shiftPhase !== "prep") {
+      store.upgradePanel.visible = false;
+    }
+
     // Lights brighten during last call and closing
     const lightsUp = (data.isLastCall && data.shiftPhase === "service") || data.shiftPhase === "closing";
     this.level?.setLightLevel(lightsUp);
@@ -370,11 +580,20 @@ class Game extends Singleton<Game>() {
       const toast = this._eventToToast(event.type, event.data);
       if (toast) {
         store.toasts.push({ id: ++store.toastCounter, ...toast, timer: 3 });
+        // Critical events also get a center-screen flash
+        if (this._isCriticalEvent(event.type)) {
+          store.centerFlash = { id: store.toastCounter, ...toast, timer: 1.5 };
+        }
       }
     }
     // Age toasts
     const dt = 1 / 20; // update rate
     store.toasts = store.toasts.filter((t) => { t.timer -= dt; return t.timer > 0; });
+    // Age center flash
+    if (store.centerFlash) {
+      store.centerFlash.timer -= dt;
+      if (store.centerFlash.timer <= 0) store.centerFlash = null;
+    }
 
     // Find local player's held item and facing guest for HUD display
     const localPlayer = data.players.find((p) => p.id === Communicator.uuid);
@@ -476,6 +695,8 @@ class Game extends Singleton<Game>() {
     switch (type) {
       case EEngineEventType.MONEY_EARNED:
         return { message: `+$${data.amount}`, color: "#ffd93d" };
+      case EEngineEventType.TIP_EARNED:
+        return { message: `+$${data.amount} tip`, color: "#44cc44" };
       case EEngineEventType.GUEST_OVERSERVED:
         this.level?.triggerOverserveFlash();
         return { message: "Overserved!", color: "#ff4444" };
@@ -493,6 +714,8 @@ class Game extends Singleton<Game>() {
         return { message: "Helped up", color: "#44aa44" };
       case EEngineEventType.LAST_CALL:
         return { message: "LAST CALL!", color: "#ffd93d" };
+      case EEngineEventType.EXPENSE_DEDUCTED:
+        return { message: `-$${data.amount} expenses`, color: "#ff6b6b" };
       case EEngineEventType.SHIFT_CHANGE:
         return { message: `${(data.phase as string).toUpperCase()} phase`, color: "#4ecdc4" };
       case EEngineEventType.SHIFT_SUMMARY:
@@ -502,16 +725,31 @@ class Game extends Singleton<Game>() {
           guestsServed: (data.guestsServed as number) ?? 0,
           guestsTotal: (data.guestsTotal as number) ?? 0,
           moneyEarned: (data.moneyEarned as number) ?? 0,
+          tipsEarned: (data.tipsEarned as number) ?? 0,
           reputationChange: (data.reputationChange as number) ?? 0,
           fights: (data.fights as number) ?? 0,
           slips: (data.slips as number) ?? 0,
           overserves: (data.overserves as number) ?? 0,
           policeRaids: (data.policeRaids as number) ?? 0,
+          restockCost: (data.restockCost as number) ?? 0,
+          breakageCost: (data.breakageCost as number) ?? 0,
+          wasteCost: (data.wasteCost as number) ?? 0,
+          totalExpenses: (data.totalExpenses as number) ?? 0,
         };
         return null; // handled by ShiftSummary.vue
       default:
         return null;
     }
+  }
+
+  private _isCriticalEvent(type: number): boolean {
+    return type === EEngineEventType.GUEST_OVERSERVED
+      || type === EEngineEventType.POLICE_WARNING
+      || type === EEngineEventType.POLICE_RAID
+      || type === EEngineEventType.BAR_FIGHT_STARTED
+      || type === EEngineEventType.GUEST_SLIPPED
+      || type === EEngineEventType.LAST_CALL
+      || type === EEngineEventType.SHIFT_CHANGE;
   }
 
   public get playerSlots(): (IPlayerStateData | undefined)[] {

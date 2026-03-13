@@ -87,6 +87,7 @@ export class Widget extends Appliance {
     if (heldItem && config.returnableItems?.includes(heldItem.type)) {
       ctx.deleteItem(heldItem.id);
       bartender.setHeldItem(null, null);
+      this.restoreStock();
       return true;
     }
 

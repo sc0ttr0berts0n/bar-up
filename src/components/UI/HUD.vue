@@ -12,6 +12,18 @@ function skipPrepPhase() {
   });
 }
 
+function toggleUpgradePanel() {
+  store.upgradePanel.visible = !store.upgradePanel.visible;
+  store.upgradePanel.selectedIndex = 0;
+}
+
+function enterEditMode() {
+  Communicator.sendToServer({
+    uuid: Communicator.uuid,
+    type: PACKET_TYPE.CLIENT_EDIT_ENTER,
+  });
+}
+
 const ITEM_NAMES: Record<string, string> = {
   glass: "Glass",
   pilsner: "Pilsner",
@@ -111,8 +123,17 @@ const policePulse = computed(() => {
     <div class="hud-timer">{{ formattedTimer }}</div>
     <span v-if="showLastCall" class="hud-last-call">LAST CALL</span>
     <span v-if="store.isOvertime" class="hud-overtime-pulse">OVERTIME</span>
-    <button v-if="store.shiftPhase === 'prep'" class="hud-skip-btn" @click="skipPrepPhase">
+    <button v-if="store.shiftPhase === 'prep' && !store.editMode.active" class="hud-upgrade-btn" @click="toggleUpgradePanel">
+      Upgrades
+    </button>
+    <button v-if="store.shiftPhase === 'prep' && !store.editMode.active" class="hud-edit-btn" @click="enterEditMode">
+      Edit Layout
+    </button>
+    <button v-if="store.shiftPhase === 'prep' && !store.editMode.active" class="hud-skip-btn" @click="skipPrepPhase">
       Start Shift &#x25B6;
+    </button>
+    <button v-if="store.shiftPhase === 'service' || store.shiftPhase === 'closing'" class="hud-close-btn" @click="skipPrepPhase">
+      {{ store.shiftPhase === 'service' ? 'Close Bar' : 'End Closing' }} &#x25B6;
     </button>
     <template v-if="showPolice">
       <div class="hud-divider"></div>
@@ -193,6 +214,32 @@ const policePulse = computed(() => {
   font-size: 1.3rem;
   color: #aaa;
 }
+.hud-upgrade-btn {
+  pointer-events: auto;
+  padding: 4px 12px;
+  background: #cc8844;
+  color: #111;
+  border: none;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  &:hover { background: #dd9955; }
+}
+.hud-edit-btn {
+  pointer-events: auto;
+  padding: 4px 12px;
+  background: #44aa44;
+  color: #111;
+  border: none;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  &:hover { background: #55cc55; }
+}
 .hud-skip-btn {
   pointer-events: auto;
   padding: 4px 12px;
@@ -205,6 +252,19 @@ const policePulse = computed(() => {
   font-weight: bold;
   cursor: pointer;
   &:hover { background: #5de0d7; }
+}
+.hud-close-btn {
+  pointer-events: auto;
+  padding: 4px 12px;
+  background: #ff6b6b;
+  color: #111;
+  border: none;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  &:hover { background: #ff8888; }
 }
 .hud-police {
   display: flex;

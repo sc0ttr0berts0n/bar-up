@@ -19,4 +19,12 @@ export class Random {
   static uuid(): string {
     return crypto.randomUUID();
   }
+
+  /** Box-Muller transform for gaussian distribution */
+  static gaussian(mean: number, stddev: number): number {
+    const u1 = Math.random();
+    const u2 = Math.random();
+    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return mean + z * stddev;
+  }
 }

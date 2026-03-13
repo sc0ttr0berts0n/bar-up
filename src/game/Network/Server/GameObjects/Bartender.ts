@@ -20,6 +20,8 @@ export class Bartender {
   private _color: number;
   private _moveDirection: EDirection | null = null;
   private _moveTimeout: number = 0;
+  private _moveQueue: EDirection[] = [];
+  private _consecutiveMoves: number = 0;
 
   constructor(number: number, spawnX: number, spawnY: number) {
     this._number = number;
@@ -84,11 +86,19 @@ export class Bartender {
    * Actual movement happens in tick().
    */
   setMoveDirection(direction: EDirection | null) {
-    this._moveDirection = direction;
-    this._moveTimeout = 0;
     if (direction !== null) {
       this._facing = direction;
+      // Only queue on direction change (first press or direction switch)
+      // Continuous resends from held key have same direction — no duplicate queue
+      if (this._moveDirection !== direction && this._moveQueue.length < 3) {
+        this._moveQueue.push(direction);
+      }
+      this._moveDirection = direction;
+    } else {
+      this._moveDirection = null;
+      this._consecutiveMoves = 0;
     }
+    this._moveTimeout = 0;
   }
 
   /**
@@ -119,40 +129,55 @@ export class Bartender {
 
     // Handle movement
     if (this._moveProgress < 1) {
-      this._moveProgress += dt * GameSettings.playerMoveSpeed;
+      // Held keys get a slight speed boost after 2+ consecutive moves
+      const speedMult = this._moveDirection !== null && this._consecutiveMoves >= 2 ? 1.25 : 1.0;
+      this._moveProgress += dt * GameSettings.playerMoveSpeed * speedMult;
       if (this._moveProgress >= 1) {
         this._moveProgress = 1;
         this._gridX = this._targetX;
         this._gridY = this._targetY;
-        return true; // movement completed
+        // Don't return yet — fall through to start next move immediately
+      } else {
+        return false;
       }
-      return false;
     }
 
-    // Try to start new movement from input direction
-    if (this._moveDirection !== null && !this._isInteracting) {
-      let dx = 0;
-      let dy = 0;
-      switch (this._moveDirection) {
-        case EDirection.UP:
-          dy = -1;
-          break;
-        case EDirection.DOWN:
-          dy = 1;
-          break;
-        case EDirection.LEFT:
-          dx = -1;
-          break;
-        case EDirection.RIGHT:
-          dx = 1;
-          break;
+    // Try to start new movement — queue first (taps), then held direction
+    if (!this._isInteracting) {
+      let dir: EDirection | null = null;
+      if (this._moveQueue.length > 0) {
+        dir = this._moveQueue.shift()!;
+      } else if (this._moveDirection !== null) {
+        dir = this._moveDirection;
+        this._consecutiveMoves++;
       }
-      const newX = this._gridX + dx;
-      const newY = this._gridY + dy;
-      if (canMoveTo(newX, newY)) {
-        this._targetX = newX;
-        this._targetY = newY;
-        this._moveProgress = 0;
+
+      if (dir !== null) {
+        let dx = 0;
+        let dy = 0;
+        switch (dir) {
+          case EDirection.UP:
+            dy = -1;
+            break;
+          case EDirection.DOWN:
+            dy = 1;
+            break;
+          case EDirection.LEFT:
+            dx = -1;
+            break;
+          case EDirection.RIGHT:
+            dx = 1;
+            break;
+        }
+        const newX = this._gridX + dx;
+        const newY = this._gridY + dy;
+        if (canMoveTo(newX, newY)) {
+          this._targetX = newX;
+          this._targetY = newY;
+          this._moveProgress = 0;
+          return true; // started new move
+        }
+        // Blocked — discard this queued move (don't retry)
       }
     }
 

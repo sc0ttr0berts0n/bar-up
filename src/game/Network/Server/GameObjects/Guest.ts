@@ -1,4 +1,4 @@
-import { EGuestStatus, EGuestTrait, type IGuestOrder, type IGuestStateData } from "../../../Shared/GuestTypes";
+import { EGuestStatus, EGuestTier, EGuestTrait, type IGuestOrder, type IGuestStateData, type IPersonality, deriveTraits } from "../../../Shared/GuestTypes";
 import { getMenuDrinkKeys } from "../../../Shared/DrinkRecipes";
 import GameSettings from "../../../Shared/GameSettings";
 import { Random } from "../../../Utils/Random";
@@ -47,6 +47,8 @@ export class Guest {
   private _chatCooldown: number = 0;
   private _preferredDrink: string | null = null;
   private _preferenceRevealed: boolean = false;
+  private _personality: IPersonality = { wrath: 0.5, greed: 0.5, gluttony: 0.5, sloth: 0.5, pride: 0.5, envy: 0.5, lust: 0.5 };
+  private _isDesignatedDriver: boolean = false;
   private _traits: EGuestTrait[] = [];
   private _revealedTraits: EGuestTrait[] = [];
   private _queuePosition: number = -1;
@@ -54,7 +56,9 @@ export class Guest {
   private _wasOverserved: boolean = false;
   private _lastCallDecision: "none" | "ordering" | "leaving" | "finishing" = "none";
   private _isChugging: boolean = false;
+  private _tier: EGuestTier = EGuestTier.NORMAL;
   private _isTileBlocked: ((x: number, y: number) => boolean) | null = null;
+  private _isWalkableTile: ((x: number, y: number) => boolean) | null = null;
 
   constructor(partyId: string, spawnX: number, spawnY: number) {
     this._id = Random.uuid();
@@ -65,7 +69,7 @@ export class Guest {
     this._targetY = spawnY;
     this._patience = GameSettings.patienceStarting;
     this._happiness = GameSettings.happinessStarting;
-    this._roundsRemaining = Random.rangeInt(1, 3);
+    this._roundsRemaining = Random.rangeInt(1, 3); // overridden by applyTier/setPersonality
     this._name = Random.pickOne(GUEST_NAMES);
     this._drunkGoal = Random.range(
       GameSettings.drunkGoalRange[0],
@@ -167,6 +171,9 @@ export class Guest {
   setTileBlockedCheck(fn: ((x: number, y: number) => boolean) | null) {
     this._isTileBlocked = fn;
   }
+  setWalkableCheck(fn: ((x: number, y: number) => boolean) | null) {
+    this._isWalkableTile = fn;
+  }
   get lastCallDecision() {
     return this._lastCallDecision;
   }
@@ -180,12 +187,39 @@ export class Guest {
     this._isChugging = val;
   }
 
+  get personality() {
+    return this._personality;
+  }
+
+  get isDesignatedDriver() {
+    return this._isDesignatedDriver;
+  }
+
+  setPersonality(personality: IPersonality, isDesignatedDriver: boolean = false) {
+    this._personality = personality;
+    this._isDesignatedDriver = isDesignatedDriver;
+    this._traits = deriveTraits(personality, isDesignatedDriver);
+  }
+
   hasTrait(trait: EGuestTrait): boolean {
     return this._traits.includes(trait);
   }
 
+  /** @deprecated Use setPersonality() instead — kept for test compatibility */
   setTraits(traits: EGuestTrait[]) {
     this._traits = traits;
+  }
+
+  get tier() {
+    return this._tier;
+  }
+
+  applyTier(tier: EGuestTier) {
+    this._tier = tier;
+    const stats = GameSettings.guestTierStats[tier];
+    this._patience = Math.min(GameSettings.patienceMax, GameSettings.patienceStarting + stats.patienceMod);
+    this._happiness = Math.min(GameSettings.happinessMax, GameSettings.happinessStarting + stats.happinessMod);
+    this._roundsRemaining = Random.rangeInt(stats.roundsRange[0], stats.roundsRange[1]);
   }
 
   /** Chat with this guest. Returns true if new info was revealed. */
@@ -196,15 +230,13 @@ export class Guest {
       GameSettings.chatCooldownRange[0],
       GameSettings.chatCooldownRange[1],
     );
-    this.adjustHappiness(GameSettings.chatHappinessBonus);
+    // Base chat happiness + lust-driven bonus (lustful guests enjoy chatting more)
+    this.adjustHappiness(GameSettings.chatHappinessBonus + Math.round(this._personality.lust * GameSettings.chatHappinessBonus));
 
-    // CHATTY trait: bonus happiness
-    if (this.hasTrait(EGuestTrait.CHATTY)) {
-      this.adjustHappiness(GameSettings.chatHappinessBonus);
-    }
-
+    // Reveal chance: base + per-chat + lust-driven depth
     const chance = GameSettings.chatRevealBaseChance
-      + GameSettings.chatRevealChancePerChat * (this._chatCount - 1);
+      + GameSettings.chatRevealChancePerChat * (this._chatCount - 1)
+      + this._personality.lust * 0.1;
 
     if (Random.range(0, 1) < chance) {
       // Try to reveal an unrevealed trait first
@@ -283,6 +315,10 @@ export class Guest {
     this._roundsRemaining--;
   }
 
+  setRounds(rounds: number) {
+    this._roundsRemaining = rounds;
+  }
+
   /** Tick guest movement and status timers. Returns true if guest should be removed. */
   tick(dt: number): boolean {
     this._statusTimer += dt;
@@ -300,8 +336,38 @@ export class Guest {
         this._gridX = this._targetX;
         this._gridY = this._targetY;
         this._pathIndex++;
-        // Continue to next path node (with collision check)
-        if (this._pathIndex < this._path.length) {
+        // Drunk stumble: chance to step in a random direction instead of following path
+        if (this._drunkenness > 0.1 && this._pathIndex < this._path.length && Random.chance(this._drunkenness * 0.6)) {
+          const offsets = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+          const shuffled = offsets.sort(() => Math.random() - 0.5);
+          for (const off of shuffled) {
+            const sx = this._gridX + off.x;
+            const sy = this._gridY + off.y;
+            // Must be walkable terrain AND not blocked by another guest
+            const walkable = this._isWalkableTile ? this._isWalkableTile(sx, sy) : true;
+            const notBlocked = !this._isTileBlocked || !this._isTileBlocked(sx, sy);
+            if (walkable && notBlocked) {
+              // Stumble to random tile, then re-insert current path node so they correct course
+              this._pathIndex--;
+              this._targetX = sx;
+              this._targetY = sy;
+              this._moveProgress = 0;
+              break;
+            }
+          }
+          // If no stumble tile found, fall through to normal path logic
+          if (this._moveProgress >= 1 && this._pathIndex < this._path.length) {
+            const next = this._path[this._pathIndex];
+            if (this._isTileBlocked && this._isTileBlocked(next.x, next.y)) {
+              this._pathIndex--;
+            } else {
+              this._targetX = next.x;
+              this._targetY = next.y;
+              this._moveProgress = 0;
+            }
+          }
+        } else if (this._pathIndex < this._path.length) {
+          // Normal path following
           const next = this._path[this._pathIndex];
           if (this._isTileBlocked && this._isTileBlocked(next.x, next.y)) {
             // Tile blocked — wait and retry next tick (don't advance pathIndex)
@@ -348,7 +414,8 @@ export class Guest {
               ? GameSettings.reorderPauseDuration
               : GameSettings.decidingDuration;
           decideDuration = Random.range(minDecide, maxDecide);
-          if (this.hasTrait(EGuestTrait.IMPATIENT)) decideDuration *= GameSettings.impatientTimerMultiplier;
+          // Wrath drives impatience: high wrath = faster deciding (0.7x at wrath=1, 1.0x at wrath=0)
+          decideDuration *= 1.0 - this._personality.wrath * 0.3;
         }
         if (this._statusTimer >= decideDuration) {
           this._isReorder = false;
@@ -422,8 +489,13 @@ export class Guest {
         if (this._drinkProgress >= nextSipAt && this._sipsTaken < GameSettings.sipsPerDrink) {
           this._sipsTaken++;
           let sipAmount = GameSettings.sipDrunkenness;
-          if (this.hasTrait(EGuestTrait.LIGHTWEIGHT)) sipAmount *= GameSettings.lightweightDrunkMultiplier;
-          if (this.hasTrait(EGuestTrait.LUSH)) sipAmount *= GameSettings.lushDrunkMultiplier;
+          if (this._isDesignatedDriver) {
+            sipAmount = 0; // DD never gets drunk
+          } else {
+            // Gluttony drives tolerance: drunkRate = 1.3 - 0.6 * gluttony
+            // Low gluttony (temperate) = 1.3x (lightweight), High gluttony = 0.7x (lush/tolerant)
+            sipAmount *= 1.3 - 0.6 * this._personality.gluttony;
+          }
           this._drunkenness += sipAmount;
         }
 
@@ -479,12 +551,12 @@ export class Guest {
         break;
     }
 
-    // VIOLENT trait: check for fight trigger while DECIDING or DRINKING
+    // Fight check — wrath drives fight threshold continuously
+    // fightHappinessThreshold = 15 + 20 * (1 - wrath): wrathful guests fight at higher happiness
     if (
-      this.hasTrait(EGuestTrait.VIOLENT) &&
       (this._status === EGuestStatus.DECIDING || this._status === EGuestStatus.DRINKING) &&
       this._drunkenness >= GameSettings.fightDrunkThreshold &&
-      this._happiness < GameSettings.fightHappinessThreshold
+      this._happiness < 15 + 20 * (1 - this._personality.wrath)
     ) {
       this.setStatus(EGuestStatus.FIGHTING);
     }
@@ -533,6 +605,9 @@ export class Guest {
       wasOverserved: this._wasOverserved,
       lastCallDecision: this._lastCallDecision,
       isChugging: this._isChugging,
+      tier: this._tier,
+      personality: { ...this._personality },
+      isDesignatedDriver: this._isDesignatedDriver,
     };
   }
 }

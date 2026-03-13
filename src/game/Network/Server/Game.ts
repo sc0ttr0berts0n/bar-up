@@ -72,6 +72,8 @@ export class Game {
           policeAttention: this.engine.policeAttention,
           isLastCall: this.engine.shiftManager.lastCallTriggered,
           isOvertime: this.engine.shiftManager.isOvertime,
+          editMode: this.engine.editModeState,
+          upgrades: this.engine.upgradeState,
         },
       });
 

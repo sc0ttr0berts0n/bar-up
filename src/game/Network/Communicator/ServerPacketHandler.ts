@@ -6,7 +6,7 @@ import {
   PACKET_TYPE,
 } from "./PacketTypes";
 import Communicator from "./Communicator";
-import { EGuestStatus } from "../../Shared/GuestTypes";
+import { EGuestStatus, EGuestTier } from "../../Shared/GuestTypes";
 import { EDirection } from "../../Shared/TileTypes";
 import { EApplianceType } from "../../Shared/ApplianceTypes";
 import { EItemType } from "../../Shared/ItemTypes";
@@ -70,6 +70,17 @@ export class ServerPacketHandler {
     wasOverserved: z.boolean(),
     lastCallDecision: z.string(),
     isChugging: z.boolean(),
+    tier: z.nativeEnum(EGuestTier),
+    personality: z.object({
+      wrath: z.number(),
+      greed: z.number(),
+      gluttony: z.number(),
+      sloth: z.number(),
+      pride: z.number(),
+      envy: z.number(),
+      lust: z.number(),
+    }),
+    isDesignatedDriver: z.boolean(),
   });
 
   private static _applianceSchema = z.object({
@@ -129,6 +140,20 @@ export class ServerPacketHandler {
       policeAttention: z.number(),
       isLastCall: z.boolean(),
       isOvertime: z.boolean(),
+      editMode: z.union([
+        z.object({
+          active: z.boolean(),
+          heldApplianceId: z.union([z.string(), z.null()]),
+          heldApplianceType: z.union([z.nativeEnum(EApplianceType), z.null()]),
+          previewX: z.number(),
+          previewY: z.number(),
+          placementValid: z.boolean(),
+        }),
+        z.null(),
+      ]),
+      upgrades: z.object({
+        levels: z.record(z.string(), z.number()),
+      }),
     }),
   });
 

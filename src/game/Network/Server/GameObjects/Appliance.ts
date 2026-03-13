@@ -59,6 +59,12 @@ export class Appliance {
     return this._maxSeats;
   }
 
+  /** Reposition this appliance on the grid (used by edit mode). */
+  moveTo(gridX: number, gridY: number) {
+    this._gridX = gridX;
+    this._gridY = gridY;
+  }
+
   hasOpenSlot(): boolean {
     return this._slots.some((s) => s === null);
   }
@@ -120,6 +126,12 @@ export class Appliance {
   get maxStock() { return this._maxStock; }
   get restockCost() { return this._restockCost; }
 
+  setMaxStock(value: number) {
+    const delta = value - this._maxStock;
+    this._maxStock = value;
+    if (delta > 0) this._currentStock += delta;
+  }
+
   hasStock(): boolean {
     return this._maxStock === 0 || this._currentStock > 0;
   }
@@ -132,6 +144,10 @@ export class Appliance {
 
   restock() {
     this._currentStock = this._maxStock;
+  }
+
+  restoreStock(amount: number = 1) {
+    this._currentStock = Math.min(this._maxStock, this._currentStock + amount);
   }
 
   get state(): IApplianceStateData {

@@ -194,8 +194,9 @@ export class GuestView extends Container {
 
     // Danger zone: red stroke when drunkenness is at or above overserve threshold
     const inDanger = state.drunkenness >= GameSettings.overserveDrunkennessThreshold;
-    const strokeColor = inDanger ? 0xff3333 : 0x333333;
-    const strokeWidth = inDanger ? 2 : 1;
+    const isVIP = state.tier === "high";
+    const strokeColor = inDanger ? 0xff3333 : isVIP ? 0xffd700 : 0x333333;
+    const strokeWidth = inDanger ? 2 : isVIP ? 2 : 1;
 
     this._body.clear();
     this._body.circle(0, 0, r).fill(tintColor);

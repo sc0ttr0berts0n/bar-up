@@ -252,7 +252,7 @@ export const WIDGET_SINK: IWidgetConfig = {
   restockCost: 0,
   transforms: [{
     input: [EItemType.DIRTY_GLASS],
-    output: null,
+    output: EItemType.GLASS,
     duration: GameSettings.washDuration,
   }],
   seats: { north: 0, south: 0, east: 0, west: 0 },

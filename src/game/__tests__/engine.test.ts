@@ -139,3 +139,123 @@ describe("Engine appliance stock", () => {
     expect(draft.currentStock).toBe(draft.maxStock);
   });
 });
+
+// ── SHIFT-END EXPENSES ──────────────────────────────────────
+
+import { Item } from "../Network/Server/GameObjects/Item";
+import { EItemType } from "../Shared/ItemTypes";
+import { RECIPES } from "../Shared/DrinkRecipes";
+
+describe("Shift-end expenses", () => {
+  it("restock cost proportional to depletion", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+
+    // Find draft system and deplete half its stock
+    let draft: any = null;
+    for (const app of priv(engine)._appliances.values()) {
+      if (app.type === EApplianceType.DRAFT_SYSTEM) { draft = app; break; }
+    }
+    expect(draft).not.toBeNull();
+    const halfStock = Math.floor(draft.maxStock / 2);
+    for (let i = 0; i < halfStock; i++) draft.depleteStock();
+
+    const moneyBefore = priv(engine)._money;
+    priv(engine)._calculateShiftExpenses();
+
+    const expectedCost = Math.round(draft.restockCost * halfStock / draft.maxStock);
+    expect(priv(engine)._shiftStats.restockCost).toBeGreaterThanOrEqual(expectedCost);
+    // Stock should be restored
+    expect(draft.currentStock).toBe(draft.maxStock);
+  });
+
+  it("full stock = zero restock cost", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+
+    // All appliances start at full stock
+    const moneyBefore = priv(engine)._money;
+    priv(engine)._calculateShiftExpenses();
+
+    expect(priv(engine)._shiftStats.restockCost).toBe(0);
+    expect(priv(engine)._money).toBe(moneyBefore); // no fights, no waste either
+  });
+
+  it("breakage cost per fight", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+    priv(engine)._shiftStats.fights = 3;
+
+    priv(engine)._calculateShiftExpenses();
+
+    expect(priv(engine)._shiftStats.breakageCost).toBe(3 * GameSettings.breakageCostPerFight);
+  });
+
+  it("waste cost for items on surfaces", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+
+    // Place two pilsners on a counter
+    let counter: any = null;
+    for (const app of priv(engine)._appliances.values()) {
+      if (app.type === EApplianceType.COUNTER && app._maxSlots > 0) { counter = app; break; }
+    }
+    expect(counter).not.toBeNull();
+
+    const item1 = new Item(EItemType.PILSNER);
+    item1.placeOnAppliance(counter.id, 0);
+    counter.setSlot(0, item1.id);
+    priv(engine)._items.set(item1.id, item1);
+
+    priv(engine)._calculateShiftExpenses();
+
+    const pilsnerCost = RECIPES["pilsner"].baseCost;
+    expect(priv(engine)._shiftStats.wasteCost).toBe(pilsnerCost);
+  });
+
+  it("no waste for held items", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+
+    // Create an item held by bartender (no applianceId)
+    const item = new Item(EItemType.PILSNER);
+    item.pickUp("test-player");
+    priv(engine)._items.set(item.id, item);
+
+    priv(engine)._calculateShiftExpenses();
+
+    expect(priv(engine)._shiftStats.wasteCost).toBe(0);
+  });
+
+  it("items cleared after expenses", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+
+    const item = new Item(EItemType.PILSNER);
+    priv(engine)._items.set(item.id, item);
+
+    priv(engine)._calculateShiftExpenses();
+
+    expect(priv(engine)._items.size).toBe(0);
+  });
+
+  it("total deducted from money", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+    priv(engine)._shiftStats.fights = 2;
+
+    // Deplete some stock on draft
+    let draft: any = null;
+    for (const app of priv(engine)._appliances.values()) {
+      if (app.type === EApplianceType.DRAFT_SYSTEM) { draft = app; break; }
+    }
+    for (let i = 0; i < 5; i++) draft.depleteStock();
+
+    const moneyBefore = priv(engine)._money;
+    priv(engine)._calculateShiftExpenses();
+
+    const stats = priv(engine)._shiftStats;
+    expect(stats.totalExpenses).toBe(stats.restockCost + stats.breakageCost + stats.wasteCost);
+    expect(priv(engine)._money).toBe(moneyBefore - stats.totalExpenses);
+  });
+});

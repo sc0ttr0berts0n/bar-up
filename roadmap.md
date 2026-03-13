@@ -1,6 +1,6 @@
 # Drink Up! — Roadmap
 
-> Last updated: 2026-03-11
+> Last updated: 2026-03-13
 
 ---
 
@@ -38,30 +38,35 @@ Features that were partially wired up but missing logic, feedback, or integratio
 
 ---
 
-## Phase 3: Economy & Tipping 💰
+## Phase 3: Economy & Tipping ✅
 
 Give money more meaning. Currently serve = flat menu price, no variance.
 
 | ID | Feature | Detail | Status |
 |----|---------|--------|--------|
-| 3A | Tip system | Tips based on: guest happiness, serve speed, preferred drink served, HIGHROLLER multiplier (2B). Separate tip display from base price in toast. | Not started |
-| 3B | Shift-end expenses | Deduct costs at shift end: ingredient waste (unsold stock), breakage (fights), fines (raids already deduct). Makes prep-phase menu config matter more. | Not started |
-| 3C | Reputation → guest quality | Higher rep attracts wealthier guests (bigger tips, more HIGHROLLER). Lower rep attracts cheaper/rowdier guests (more VIOLENT, MESSY). Guest "tier" system. | Not started |
-| 3D | Upgrades (between shifts) | Spend money on permanent improvements: faster sink, larger stock capacity, extra queue slots, auto-restock, better glasses (slower patience decay). Prep-phase upgrade panel. | Not started |
+| 3A | Tip system | Tips based on: guest happiness, serve speed, preferred drink served, HIGHROLLER multiplier (2B). Separate tip display from base price in toast. | ✅ Done |
+| 3B | Shift-end expenses | Restock (proportional to depletion), breakage ($25/fight), waste (drinks left on surfaces). Calculated before shift summary, displayed in ShiftSummary.vue. | ✅ Done |
+| 3C | Reputation → guest quality | Three tiers (LOW/NORMAL/HIGH) based on reputation. HIGH = gold outline, more positive traits, +10 patience/happiness, 1.3x tips. LOW = more negative traits, -10 patience/happiness, 0.7x tips. Visible in GuestCardHUD. | ✅ Done |
+| 3D | Upgrades (between shifts) | 3 upgrades: Fast Sink (3 lvl, wash speed), Stock Capacity (3 lvl, +5/+10/+15), Extra Queue (2 lvl, +3/+6 slots). Keyboard-nav panel during prep. 11 tests. | ✅ Done |
 
 ---
 
-## Phase 4: Content & Variety 🍹
+## Phase 4: Depth & Systems 🍹
 
-More things to make and do behind the bar.
+Interlocking systems that make each shift feel different and each guest feel like a person. Full design in `.claude/plans/gleaming-bouncing-muffin.md`.
 
 | ID | Feature | Detail | Status |
 |----|---------|--------|--------|
-| 4A | Food / snacks | New appliance (kitchen window or snack shelf). Serving food slows drunkenness gain, adds happiness. Pairs with certain drinks. | Not started |
-| 4B | Multi-step cocktails | Recipes requiring 2+ appliance steps (e.g., glass → liquor rail → ice well → garnish station). New appliance: garnish station. | Not started |
-| 4C | Special events | Random per-shift modifiers: Happy Hour (2x speed, 1.5x guests), VIP Guest (big tipper, specific order), Trivia Night (guests stay longer, order more), Ladies' Night (drink discounts, more guests). | Not started |
-| 4D | Guest group dynamics | Groups share happiness influence. If one member fights/leaves angry, others get unhappy. Group orders (everyone orders at once). | Not started |
-| 4E | Seasonal / rotating menu | Certain drinks only available some shifts. Limited ingredients force menu planning. Specials board with bonus price. | Not started |
+| 4.1 | Personality system | 7 deadly sins/virtues as continuous floats [0,1]. Gaussian generation per tier. Composite traits derived from thresholds. All behavioral formulas use floats directly (fight threshold, tip mult, mess chance, sip rate, chat bonus). | ✅ Done |
+| 4.2 | Dual slot system | 2 slots per seat (food+drink, or 2 drinks, or 2 food). Gluttony drives chance of double orders. Independent progress per slot. | Not started |
+| 4.3 | Multi-step drinks | Garnish Station + Shaker appliances. 4 complexity tiers (simple/standard/cocktail/signature). 8 new recipes. Pride influences what guests choose to order. | Not started |
+| 4.4 | Food system | Kitchen Window appliance (stocked source with sub-menu). Pretzels/Nachos/Sliders. Food slows drunkenness accumulation (not reduces). Gluttony-driven food ordering. | Not started |
+| 4.5 | Population pool + regulars | 1000 townsfolk generated on session start. Bar affinity score drives spawning. Regulars (5+ visits) get name tags, "the usual", quick-serve recognition bonus. | Not started |
+| 4.6 | Party system + group dynamics + atmosphere | Mood sync within radius (envy/kindness driven). Party mood averaging. Fight cascade (wrath > 0.7 nearby guests may join). Bar atmosphere score (0-100) affects happiness decay. | Not started |
+| 4.7 | Special events | Per-shift random modifier (~40% chance). Happy Hour, VIP Night, Trivia Night, Health Inspector, Live Music, Sports Night. Announced during prep. | Not started |
+| 4.8 | Tray system + combo | Tray Stand upgrade (carry 2/3 items). Combo system: consecutive serves within 5s build tip bonus (10%→25%→50%). | Not started |
+| 4.9 | New upgrades | Tray Stand (2 lvl), Kitchen (2 lvl), Garnish Station (1 lvl), Shaker (1 lvl), Jukebox (2 lvl). Appliance upgrades place during prep. | Not started |
+| 4.10 | Compendium system | Persistent collection tracker: Townsfolk (1000), Drinks, Appliances, Composite Traits, Events. Multi-bar vision (dive bar, cocktail lounge, etc.) for completionists. | Not started |
 
 ---
 
@@ -118,11 +123,13 @@ Config-driven appliance behavior. All 13 appliance types ported. Engine.ts switc
 
 ## Priority Order
 
-**Immediate**: Phase 3 — economy gives the game a goal and makes decisions matter. Widget migration is complete (all 13 types ported).
+**Immediate**: Phase 4.2–4.4 — dual slots, multi-step drinks, food system. These are structural changes everything else builds on.
 
-**Medium-term**: Phase 4 + 5 — content and polish in parallel.
+**Medium-term**: Phase 4.5–4.7 — population pool, group dynamics, events. Social depth and shift variety.
 
-**Long-term**: Phase 6 — multiplayer depth once core is solid. Widget deferred items (W-D1, W-D2) fit here too.
+**Later**: Phase 4.8–4.10 — tray/combo, upgrades, compendium. Quality-of-life and long-term goals.
+
+**Long-term**: Phase 5 (polish) + Phase 6 (multiplayer depth) once Phase 4 systems are solid.
 
 ---
 
@@ -130,5 +137,6 @@ Config-driven appliance behavior. All 13 appliance types ported. Engine.ts switc
 
 - Each phase item should be its own commit or small PR
 - Update this file when items are completed or priorities shift
-- Test suite: 45 in-browser tests (`__TEST.runAll()`) + 217 Vitest unit tests (`npx vitest run`) — add tests for new features
+- Full design document: `.claude/plans/gleaming-bouncing-muffin.md` — detailed specs, formulas, feedback loops
+- Test suite: 45 in-browser tests (`__TEST.runAll()`) + 254 Vitest unit tests (`npx vitest run`) — add tests for new features
 - Build validation: `npx vite build` (not `npm run build`)

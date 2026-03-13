@@ -1,10 +1,15 @@
 import GameSettings from "../../../Shared/GameSettings";
-import { EGuestStatus, EGuestTrait, TRAIT_CONFLICTS } from "../../../Shared/GuestTypes";
+import { EGuestStatus, EGuestTier, type IPersonality, PERSONALITY_DIMENSIONS } from "../../../Shared/GuestTypes";
 import { Random } from "../../../Utils/Random";
 import type { Engine } from "../Engine";
 import { Guest } from "./Guest";
 
-const ALL_TRAITS = Object.values(EGuestTrait);
+/** Tier-based personality generation parameters: [mean, stddev] */
+const PERSONALITY_TIER_PARAMS: Record<EGuestTier, { mean: number; stddev: number }> = {
+  [EGuestTier.LOW]:    { mean: 0.6, stddev: 0.25 },  // skews toward sins
+  [EGuestTier.NORMAL]: { mean: 0.45, stddev: 0.2 },  // balanced, slight virtue lean
+  [EGuestTier.HIGH]:   { mean: 0.3, stddev: 0.15 },   // skews toward virtues
+};
 
 export class GuestSpawner {
   private _engine: Engine;
@@ -56,15 +61,22 @@ export class GuestSpawner {
 
     const partyId = Random.uuid();
     const entrance = this._engine.layout.guestEntrance;
+    const tier = this._rollTier();
 
     // Try to find group seating for the whole party
     const seats = this._engine.findGroupSeating(partySize);
 
-    // Create all guests
+    // Create all guests with personality-driven traits
     const guests: Guest[] = [];
     for (let i = 0; i < partySize; i++) {
       const guest = new Guest(partyId, entrance.x, entrance.y);
-      guest.setTraits(this._rollTraits());
+      const personality = this._rollPersonality(tier);
+      guest.setPersonality(personality);
+      guest.applyTier(tier);
+      // Gluttony drives rounds: 1 + floor(gluttony * 3) => 1-4
+      // Blend with tier rounds — take the max
+      const gluttonyRounds = 1 + Math.floor(personality.gluttony * 3);
+      guest.setRounds(Math.min(4, Math.max(guest.roundsRemaining, gluttonyRounds)));
       guests.push(guest);
     }
 
@@ -105,28 +117,36 @@ export class GuestSpawner {
     return 1;
   }
 
-  private _rollTraits(): EGuestTrait[] {
-    const roll = Random.range(0, 1);
-    const count = roll < 0.4 ? 0 : roll < 0.8 ? 1 : 2;
-    if (count === 0) return [];
+  /** Roll guest tier based on current reputation */
+  private _rollTier(): EGuestTier {
+    const rep = this._engine.reputation;
+    const [baseLow, , baseHigh] = GameSettings.guestTierBaseWeights;
+    const shift = rep * GameSettings.guestTierRepShift;
+    const min = GameSettings.guestTierMinWeight;
 
-    const traits: EGuestTrait[] = [];
-    const pool = [...ALL_TRAITS];
-    for (let i = 0; i < count; i++) {
-      if (pool.length === 0) break;
-      const trait = Random.pickOne(pool);
-      traits.push(trait);
-      // Remove picked trait and any conflicting traits from pool
-      const toRemove = new Set<EGuestTrait>([trait]);
-      for (const [a, b] of TRAIT_CONFLICTS) {
-        if (a === trait) toRemove.add(b);
-        if (b === trait) toRemove.add(a);
-      }
-      for (const r of toRemove) {
-        const idx = pool.indexOf(r);
-        if (idx >= 0) pool.splice(idx, 1);
-      }
-    }
-    return traits;
+    const wLow = Math.max(min, baseLow - shift);
+    const wHigh = Math.max(min, baseHigh + shift);
+    const wNorm = Math.max(min, 100 - wLow - wHigh);
+
+    const total = wLow + wNorm + wHigh;
+    const roll = Random.range(0, total);
+    if (roll < wLow) return EGuestTier.LOW;
+    if (roll < wLow + wNorm) return EGuestTier.NORMAL;
+    return EGuestTier.HIGH;
+  }
+
+  /** Generate 7 personality floats based on tier using gaussian distribution */
+  _rollPersonality(tier: EGuestTier): IPersonality {
+    const params = PERSONALITY_TIER_PARAMS[tier];
+    const roll = () => Math.max(0, Math.min(1, Random.gaussian(params.mean, params.stddev)));
+    return {
+      wrath: roll(),
+      greed: roll(),
+      gluttony: roll(),
+      sloth: roll(),
+      pride: roll(),
+      envy: roll(),
+      lust: roll(),
+    };
   }
 }

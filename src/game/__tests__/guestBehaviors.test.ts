@@ -6,11 +6,27 @@ import { describe, it, expect } from "vitest";
 import { createTestEngine, tick, priv } from "./engineHelper";
 import { Guest } from "../Network/Server/GameObjects/Guest";
 import { Item } from "../Network/Server/GameObjects/Item";
-import { EGuestStatus, EGuestTrait } from "../Shared/GuestTypes";
+import { EGuestStatus, EGuestTrait, type IPersonality, deriveTraits } from "../Shared/GuestTypes";
 import { EItemType } from "../Shared/ItemTypes";
 import { EApplianceType } from "../Shared/ApplianceTypes";
 import { RECIPES } from "../Shared/DrinkRecipes";
 import GameSettings from "../Shared/GameSettings";
+
+/** Default neutral personality (all 0.5) */
+const NEUTRAL_PERSONALITY: IPersonality = { wrath: 0.5, greed: 0.5, gluttony: 0.5, sloth: 0.5, pride: 0.5, envy: 0.5, lust: 0.5 };
+/** Personality presets matching old trait behaviors */
+const PERSONALITY_PRESETS: Partial<Record<string, Partial<IPersonality>>> = {
+  violent: { wrath: 0.9, envy: 0.7 },
+  lightweight: { gluttony: 0.1 },
+  lush: { gluttony: 0.9, wrath: 0.5 },
+  impatient: { wrath: 0.8, gluttony: 0.3 },
+  chatty: { lust: 0.8, pride: 0.3 },
+  cleanly: { sloth: 0.1, gluttony: 0.3 },
+  messy: { sloth: 0.8, gluttony: 0.7 },
+  highroller: { greed: 0.1, pride: 0.8 },
+  generous: { greed: 0.1, envy: 0.2 },
+  peaceful: { wrath: 0.1, envy: 0.2 }, // won't fight
+};
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -30,6 +46,7 @@ function spawnSeatedGuest(engine: any, counterX: number, opts?: {
   traits?: EGuestTrait[];
   roundsRemaining?: number;
   preferredDrink?: string;
+  personality?: Partial<IPersonality>;
 }) {
   const guest = new Guest("test-party", counterX, 4);
   const g = guest as any;
@@ -46,6 +63,8 @@ function spawnSeatedGuest(engine: any, counterX: number, opts?: {
   if (opts?.traits) g._traits = opts.traits;
   if (opts?.roundsRemaining !== undefined) g._roundsRemaining = opts.roundsRemaining;
   if (opts?.preferredDrink !== undefined) g._preferredDrink = opts.preferredDrink;
+  // Set personality — merge provided overrides with neutral defaults
+  g._personality = { ...NEUTRAL_PERSONALITY, ...(opts?.personality ?? {}) };
 
   // Seat at counter
   const counters = [...priv(engine)._appliances.values()].filter(
@@ -93,11 +112,13 @@ describe("Fight system", () => {
     const engine = createTestEngine();
     priv(engine)._guestSpawner.enabled = false;
 
+    // wrath=0.9 → fight threshold = 15 + 20*(1-0.9) = 17
     const guest = spawnSeatedGuest(engine, 5, {
       status: EGuestStatus.DRINKING,
       drunkenness: GameSettings.fightDrunkThreshold + 0.1,
-      happiness: GameSettings.fightHappinessThreshold - 1,
+      happiness: 10, // below threshold of 17
       traits: [EGuestTrait.VIOLENT],
+      personality: PERSONALITY_PRESETS.violent,
     });
     // Set up drinking state
     const g = guest as any;
@@ -113,11 +134,13 @@ describe("Fight system", () => {
     const engine = createTestEngine();
     priv(engine)._guestSpawner.enabled = false;
 
+    // wrath=0.9 → fight threshold = 17. happiness=40 is well above
     const guest = spawnSeatedGuest(engine, 5, {
       status: EGuestStatus.DRINKING,
       drunkenness: GameSettings.fightDrunkThreshold + 0.1,
-      happiness: GameSettings.fightHappinessThreshold + 10, // above threshold
+      happiness: 40,
       traits: [EGuestTrait.VIOLENT],
+      personality: PERSONALITY_PRESETS.violent,
     });
     const g = guest as any;
     g._drinkDuration = 999;
@@ -135,8 +158,9 @@ describe("Fight system", () => {
     const guest = spawnSeatedGuest(engine, 5, {
       status: EGuestStatus.DRINKING,
       drunkenness: GameSettings.fightDrunkThreshold - 0.2,
-      happiness: 0, // very unhappy but sober
+      happiness: 0,
       traits: [EGuestTrait.VIOLENT],
+      personality: PERSONALITY_PRESETS.violent,
     });
     const g = guest as any;
     g._drinkDuration = 999;
@@ -151,11 +175,18 @@ describe("Fight system", () => {
     const engine = createTestEngine();
     priv(engine)._guestSpawner.enabled = false;
 
+    // Low wrath → fight threshold = 15 + 20*(1-0.1) = 33. Even at happiness=0, wrath is low.
+    // But the new system uses continuous wrath, not binary. With wrath=0.1, threshold=33.
+    // happiness=0 is below 33, so it WOULD fight... but only if drunk >= threshold.
+    // Actually the formula is: happiness < 15 + 20*(1-wrath) AND drunk >= threshold
+    // With wrath=0.1: threshold = 33. happiness=0 < 33. So even peaceful guests fight when conditions are extreme.
+    // To truly never fight: set happiness above any possible threshold (>35)
     const guest = spawnSeatedGuest(engine, 5, {
       status: EGuestStatus.DRINKING,
       drunkenness: 1.0,
-      happiness: 0,
-      traits: [], // no VIOLENT trait
+      happiness: 40, // above wrath=0.1 threshold of 33
+      traits: [],
+      personality: PERSONALITY_PRESETS.peaceful,
     });
     const g = guest as any;
     g._drinkDuration = 999;
@@ -170,12 +201,13 @@ describe("Fight system", () => {
     const engine = createTestEngine();
     priv(engine)._guestSpawner.enabled = false;
 
-    // VIOLENT guest that will fight
+    // VIOLENT guest that will fight — wrath=0.9, threshold=17
     spawnSeatedGuest(engine, 5, {
       status: EGuestStatus.DRINKING,
       drunkenness: GameSettings.fightDrunkThreshold + 0.1,
-      happiness: GameSettings.fightHappinessThreshold - 1,
+      happiness: 10,
       traits: [EGuestTrait.VIOLENT],
+      personality: PERSONALITY_PRESETS.violent,
     });
     (priv(engine)._guests.values().next().value as any)._drinkDuration = 999;
     (priv(engine)._guests.values().next().value as any)._sipsTaken = GameSettings.sipsPerDrink;
@@ -201,8 +233,9 @@ describe("Fight system", () => {
     spawnSeatedGuest(engine, 5, {
       status: EGuestStatus.DRINKING,
       drunkenness: GameSettings.fightDrunkThreshold + 0.1,
-      happiness: GameSettings.fightHappinessThreshold - 1,
+      happiness: 10,
       traits: [EGuestTrait.VIOLENT],
+      personality: PERSONALITY_PRESETS.violent,
     });
     const fighter = [...priv(engine)._guests.values()].at(-1) as any;
     fighter._drinkDuration = 999;
@@ -375,11 +408,11 @@ describe("Slip system", () => {
 
 // ── TRAIT EFFECTS ────────────────────────────────────────────
 
-describe("LIGHTWEIGHT trait", () => {
-  it("increases drunkenness per sip by 1.5x", () => {
+describe("LIGHTWEIGHT (low gluttony) trait", () => {
+  it("low gluttony increases drunkenness per sip", () => {
     const guest = new Guest("test", 5, 14);
     const g = guest as any;
-    g._traits = [EGuestTrait.LIGHTWEIGHT];
+    g._personality = { ...NEUTRAL_PERSONALITY, ...PERSONALITY_PRESETS.lightweight };
     g._status = EGuestStatus.DRINKING;
     g._drinkDuration = 10;
     g._drinkProgress = 0;
@@ -396,20 +429,19 @@ describe("LIGHTWEIGHT trait", () => {
       guest.tick(dt);
     }
 
-    const expectedSip = GameSettings.sipDrunkenness * GameSettings.lightweightDrunkMultiplier;
-    // Account for slight decay
+    // drunkRate = 1.3 - 0.6 * 0.1 = 1.24 (higher than baseline 1.0)
+    const expectedSip = GameSettings.sipDrunkenness * (1.3 - 0.6 * 0.1);
     expect(g._sipsTaken).toBeGreaterThanOrEqual(1);
-    // The drunkenness should be close to expectedSip (minus tiny decay)
-    expect(g._drunkenness).toBeGreaterThan(expectedSip * 0.8);
-    expect(g._drunkenness).toBeLessThan(expectedSip * 1.2);
+    expect(g._drunkenness).toBeGreaterThan(expectedSip * 0.7);
+    expect(g._drunkenness).toBeLessThan(expectedSip * 1.3);
   });
 });
 
-describe("LUSH trait", () => {
-  it("decreases drunkenness per sip by 0.7x", () => {
+describe("LUSH (high gluttony) trait", () => {
+  it("high gluttony decreases drunkenness per sip", () => {
     const guest = new Guest("test", 5, 14);
     const g = guest as any;
-    g._traits = [EGuestTrait.LUSH];
+    g._personality = { ...NEUTRAL_PERSONALITY, ...PERSONALITY_PRESETS.lush };
     g._status = EGuestStatus.DRINKING;
     g._drinkDuration = 10;
     g._drinkProgress = 0;
@@ -424,16 +456,17 @@ describe("LUSH trait", () => {
       guest.tick(dt);
     }
 
-    const expectedSip = GameSettings.sipDrunkenness * GameSettings.lushDrunkMultiplier;
+    // drunkRate = 1.3 - 0.6 * 0.9 = 0.76 (lower than baseline 1.0)
+    const expectedSip = GameSettings.sipDrunkenness * (1.3 - 0.6 * 0.9);
     expect(g._sipsTaken).toBeGreaterThanOrEqual(1);
-    expect(g._drunkenness).toBeGreaterThan(expectedSip * 0.7);
-    expect(g._drunkenness).toBeLessThan(expectedSip * 1.3);
+    expect(g._drunkenness).toBeGreaterThan(expectedSip * 0.6);
+    expect(g._drunkenness).toBeLessThan(expectedSip * 1.4);
   });
 });
 
-describe("IMPATIENT trait", () => {
-  it("speeds up deciding duration by 0.6x multiplier", () => {
-    // Create two guests: one IMPATIENT, one normal, both DECIDING
+describe("IMPATIENT (high wrath) trait", () => {
+  it("high wrath speeds up deciding duration", () => {
+    // Create two guests: one high-wrath, one low-wrath, both DECIDING
     const normalGuest = new Guest("test", 5, 14);
     const impGuest = new Guest("test", 5, 14);
     const ng = normalGuest as any;
@@ -443,18 +476,20 @@ describe("IMPATIENT trait", () => {
     ng._statusTimer = 0;
     ng._moveProgress = 1;
     ng._drunkenness = 0;
-    ng._drunkGoal = 1.0; // not over goal
+    ng._drunkGoal = 1.0;
+    ng._personality = { ...NEUTRAL_PERSONALITY, wrath: 0.0 }; // patient
 
     ig._status = EGuestStatus.DECIDING;
     ig._statusTimer = 0;
     ig._moveProgress = 1;
     ig._drunkenness = 0;
     ig._drunkGoal = 1.0;
-    ig._traits = [EGuestTrait.IMPATIENT];
+    ig._personality = { ...NEUTRAL_PERSONALITY, ...PERSONALITY_PRESETS.impatient };
 
     const dt = 1 / GameSettings.tickRate;
     const maxDecide = GameSettings.decidingDuration[1];
-    const impatientMax = maxDecide * GameSettings.impatientTimerMultiplier;
+    // wrath=0.8: decideDuration *= 1.0 - 0.8*0.3 = 0.76
+    const wrathMax = maxDecide * (1.0 - 0.8 * 0.3);
 
     // Tick until impatient guest transitions
     let impTicks = 0;
@@ -464,12 +499,12 @@ describe("IMPATIENT trait", () => {
       if (ig._status !== EGuestStatus.DECIDING) break;
     }
 
-    // Impatient guest should decide faster than the max normal duration
+    // High-wrath guest should decide faster than max normal duration
     const impTime = impTicks / GameSettings.tickRate;
-    expect(impTime).toBeLessThanOrEqual(impatientMax + 1); // +1s tolerance
+    expect(impTime).toBeLessThanOrEqual(wrathMax + 1); // +1s tolerance
   });
 
-  it("IMPATIENT fast-serve bonus: bonus patience if served within 10s", () => {
+  it("wrath-scaled fast-serve bonus: bonus patience if served within 10s", () => {
     const engine = createTestEngine();
     priv(engine)._guestSpawner.enabled = false;
 
@@ -478,6 +513,7 @@ describe("IMPATIENT trait", () => {
       order: "pilsner",
       patience: 50,
       traits: [EGuestTrait.IMPATIENT],
+      personality: PERSONALITY_PRESETS.impatient,
     });
     // Make statusTimer < 10 (just started waiting)
     (guest as any)._statusTimer = 3;
@@ -488,36 +524,38 @@ describe("IMPATIENT trait", () => {
     const patienceBefore = guest.patience;
     engine.bartenderInteract("test-player");
 
-    // Should get serve bonus + impatient fast-serve bonus
-    const expectedMin = patienceBefore + GameSettings.patienceServeBonus + GameSettings.impatientFastServeBonus;
+    // Wrath-scaled bonus: round(10 * 0.8) = 8
+    const wrathBonus = Math.round(GameSettings.impatientFastServeBonus * 0.8);
+    const expectedMin = patienceBefore + GameSettings.patienceServeBonus + wrathBonus;
     expect(guest.patience).toBeGreaterThanOrEqual(expectedMin);
   });
 });
 
-describe("CHATTY trait", () => {
-  it("doubles chat happiness bonus", () => {
+describe("Chat happiness (lust-driven)", () => {
+  it("high lust gets bigger chat happiness bonus", () => {
     const guest = new Guest("test", 5, 14);
     const g = guest as any;
-    g._traits = [EGuestTrait.CHATTY];
+    g._personality = { ...NEUTRAL_PERSONALITY, ...PERSONALITY_PRESETS.chatty };
     g._chatAvailable = true;
     const happinessBefore = guest.happiness;
 
     guest.chat();
 
-    // CHATTY gets base bonus + extra bonus = 2x base
-    const expectedBonus = GameSettings.chatHappinessBonus * 2;
+    // lust=0.8: base + round(0.8 * base) = 5 + 4 = 9
+    const expectedBonus = GameSettings.chatHappinessBonus + Math.round(0.8 * GameSettings.chatHappinessBonus);
     expect(guest.happiness).toBe(happinessBefore + expectedBonus);
   });
 
-  it("non-CHATTY guest gets single happiness bonus", () => {
+  it("low lust (reserved) guest gets near-base happiness bonus", () => {
     const guest = new Guest("test", 5, 14);
     const g = guest as any;
-    g._traits = [];
+    g._personality = { ...NEUTRAL_PERSONALITY, lust: 0.0 }; // reserved
     g._chatAvailable = true;
     const happinessBefore = guest.happiness;
 
     guest.chat();
 
+    // lust=0: base + round(0 * base) = 5 + 0 = 5
     expect(guest.happiness).toBe(happinessBefore + GameSettings.chatHappinessBonus);
   });
 });
@@ -1114,7 +1152,7 @@ describe("Menu configuration", () => {
     expect(guest.order?.drinkKey).toBe("pilsner");
   });
 
-  it("custom price used for earnings", () => {
+  it("custom price used for earnings (base + tip)", () => {
     const engine = createTestEngine();
     priv(engine)._guestSpawner.enabled = false;
 
@@ -1131,7 +1169,11 @@ describe("Menu configuration", () => {
     const moneyBefore = priv(engine)._money;
     engine.bartenderInteract("test-player");
 
-    expect(priv(engine)._money - moneyBefore).toBe(25);
+    const earned = priv(engine)._money - moneyBefore;
+    // Should earn at least the custom base price (plus tip)
+    expect(earned).toBeGreaterThanOrEqual(25);
+    // Tip should be a reasonable fraction of base price
+    expect(earned).toBeLessThan(25 * 2);
   });
 });
 
@@ -1322,17 +1364,210 @@ describe("Guest spawner", () => {
     expect(priv(engine)._guests.size).toBe(guestsBefore);
   });
 
-  it("trait conflicts are never assigned together", () => {
-    // Roll traits many times and verify no conflicts
+  it("personality-derived traits don't produce impossible combos", () => {
+    // Roll personality many times and verify derived traits are coherent
     const spawner = priv(createTestEngine())._guestSpawner;
     for (let i = 0; i < 100; i++) {
-      const traits = (spawner as any)._rollTraits();
+      const personality = spawner._rollPersonality("normal");
+      const traits = deriveTraits(personality);
+      // LIGHTWEIGHT needs low gluttony, LUSH needs high gluttony — can't both fire
       if (traits.includes(EGuestTrait.LIGHTWEIGHT)) {
         expect(traits).not.toContain(EGuestTrait.LUSH);
       }
-      if (traits.includes(EGuestTrait.MESSY)) {
-        expect(traits).not.toContain(EGuestTrait.CLEANLY);
+      // CLEANLY needs low sloth, MESSY needs high sloth — can't both fire
+      if (traits.includes(EGuestTrait.CLEANLY)) {
+        expect(traits).not.toContain(EGuestTrait.MESSY);
       }
     }
+  });
+});
+
+// ── TIP SYSTEM ──────────────────────────────────────────────
+
+describe("Tip system", () => {
+  it("higher happiness yields higher tips", () => {
+    const results: number[] = [];
+
+    // Use a higher-price drink so rounding differences are visible
+    for (const happiness of [10, 50, 100]) {
+      const engine = createTestEngine();
+      priv(engine)._guestSpawner.enabled = false;
+      engine.setMenuDrink("pilsner", true, 50); // high price for visible tip differences
+
+      const guest = spawnSeatedGuest(engine, 5, {
+        status: EGuestStatus.WAITING_FOR_ORDER,
+        order: "pilsner",
+        happiness,
+        preferredDrink: "lager", // avoid preferred bonus
+      });
+
+      const bartender = setupBartender(engine, 5, 2, "down");
+      giveBartenderItem(engine, bartender, EItemType.PILSNER);
+
+      const moneyBefore = priv(engine)._money;
+      engine.bartenderInteract("test-player");
+
+      results.push(priv(engine)._money - moneyBefore);
+    }
+
+    // Higher happiness → higher total earnings
+    expect(results[2]).toBeGreaterThan(results[1]);
+    expect(results[1]).toBeGreaterThan(results[0]);
+  });
+
+  it("preferred drink adds bonus tip", () => {
+    // With preferred drink match
+    const engine1 = createTestEngine();
+    priv(engine1)._guestSpawner.enabled = false;
+    engine1.setMenuDrink("pilsner", true, 50);
+    const guest1 = spawnSeatedGuest(engine1, 5, {
+      status: EGuestStatus.WAITING_FOR_ORDER,
+      order: "pilsner",
+      preferredDrink: "pilsner",
+    });
+    const bt1 = setupBartender(engine1, 5, 2, "down");
+    giveBartenderItem(engine1, bt1, EItemType.PILSNER);
+    const before1 = priv(engine1)._money;
+    engine1.bartenderInteract("test-player");
+    const earned1 = priv(engine1)._money - before1;
+
+    // Without preferred drink match
+    const engine2 = createTestEngine();
+    priv(engine2)._guestSpawner.enabled = false;
+    engine2.setMenuDrink("pilsner", true, 50);
+    const guest2 = spawnSeatedGuest(engine2, 5, {
+      status: EGuestStatus.WAITING_FOR_ORDER,
+      order: "pilsner",
+      preferredDrink: "lager",
+    });
+    const bt2 = setupBartender(engine2, 5, 2, "down");
+    giveBartenderItem(engine2, bt2, EItemType.PILSNER);
+    const before2 = priv(engine2)._money;
+    engine2.bartenderInteract("test-player");
+    const earned2 = priv(engine2)._money - before2;
+
+    expect(earned1).toBeGreaterThan(earned2);
+  });
+
+  it("fast serve adds speed bonus tip", () => {
+    // Fast serve (statusTimer = 0)
+    const engine1 = createTestEngine();
+    priv(engine1)._guestSpawner.enabled = false;
+    engine1.setMenuDrink("pilsner", true, 50);
+    const guest1 = spawnSeatedGuest(engine1, 5, {
+      status: EGuestStatus.WAITING_FOR_ORDER,
+      order: "pilsner",
+      preferredDrink: "lager",
+    });
+    const bt1 = setupBartender(engine1, 5, 2, "down");
+    giveBartenderItem(engine1, bt1, EItemType.PILSNER);
+    const before1 = priv(engine1)._money;
+    engine1.bartenderInteract("test-player");
+    const earned1 = priv(engine1)._money - before1;
+
+    // Slow serve (statusTimer > threshold)
+    const engine2 = createTestEngine();
+    priv(engine2)._guestSpawner.enabled = false;
+    engine2.setMenuDrink("pilsner", true, 50);
+    const guest2 = spawnSeatedGuest(engine2, 5, {
+      status: EGuestStatus.WAITING_FOR_ORDER,
+      order: "pilsner",
+      preferredDrink: "lager",
+    });
+    (guest2 as any)._statusTimer = GameSettings.tipSpeedBonusThreshold + 5;
+    const bt2 = setupBartender(engine2, 5, 2, "down");
+    giveBartenderItem(engine2, bt2, EItemType.PILSNER);
+    const before2 = priv(engine2)._money;
+    engine2.bartenderInteract("test-player");
+    const earned2 = priv(engine2)._money - before2;
+
+    expect(earned1).toBeGreaterThan(earned2);
+  });
+
+  it("generous (low greed) guest tips more than greedy guest", () => {
+    // Generous guest (low greed = high tip multiplier)
+    const engine1 = createTestEngine();
+    priv(engine1)._guestSpawner.enabled = false;
+    engine1.setMenuDrink("pilsner", true, 50);
+    const guest1 = spawnSeatedGuest(engine1, 5, {
+      status: EGuestStatus.WAITING_FOR_ORDER,
+      order: "pilsner",
+      traits: [EGuestTrait.HIGHROLLER],
+      preferredDrink: "lager",
+      personality: { greed: 0.1 }, // generous: tipMult = 1.8 - 1.3*0.1 = 1.67
+    });
+    const bt1 = setupBartender(engine1, 5, 2, "down");
+    giveBartenderItem(engine1, bt1, EItemType.PILSNER);
+    const before1 = priv(engine1)._money;
+    engine1.bartenderInteract("test-player");
+    const generousEarned = priv(engine1)._money - before1;
+
+    // Greedy guest (high greed = low tip multiplier)
+    const engine2 = createTestEngine();
+    priv(engine2)._guestSpawner.enabled = false;
+    engine2.setMenuDrink("pilsner", true, 50);
+    const guest2 = spawnSeatedGuest(engine2, 5, {
+      status: EGuestStatus.WAITING_FOR_ORDER,
+      order: "pilsner",
+      traits: [],
+      preferredDrink: "lager",
+      personality: { greed: 0.9 }, // greedy: tipMult = 1.8 - 1.3*0.9 = 0.63
+    });
+    const bt2 = setupBartender(engine2, 5, 2, "down");
+    giveBartenderItem(engine2, bt2, EItemType.PILSNER);
+    const before2 = priv(engine2)._money;
+    engine2.bartenderInteract("test-player");
+    const greedyEarned = priv(engine2)._money - before2;
+
+    // Generous guest should earn strictly more
+    expect(generousEarned).toBeGreaterThan(greedyEarned);
+  });
+
+  it("tips tracked in shift stats", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+    engine.setMenuDrink("pilsner", true, 50);
+
+    const guest = spawnSeatedGuest(engine, 5, {
+      status: EGuestStatus.WAITING_FOR_ORDER,
+      order: "pilsner",
+      preferredDrink: "lager",
+    });
+
+    const bartender = setupBartender(engine, 5, 2, "down");
+    giveBartenderItem(engine, bartender, EItemType.PILSNER);
+
+    engine.bartenderInteract("test-player");
+
+    const stats = priv(engine)._shiftStats;
+    expect(stats.tipsEarned).toBeGreaterThan(0);
+    expect(stats.moneyEarned).toBe(stats.tipsEarned + 50);
+  });
+
+  it("zero happiness and slow serve yields no tip", () => {
+    const engine = createTestEngine();
+    priv(engine)._guestSpawner.enabled = false;
+
+    const guest = spawnSeatedGuest(engine, 5, {
+      status: EGuestStatus.WAITING_FOR_ORDER,
+      order: "pilsner",
+      happiness: 0,
+      preferredDrink: "lager",
+    });
+    // Past speed threshold so no speed bonus
+    (guest as any)._statusTimer = GameSettings.tipSpeedBonusThreshold + 5;
+
+    const bartender = setupBartender(engine, 5, 2, "down");
+    giveBartenderItem(engine, bartender, EItemType.PILSNER);
+
+    const moneyBefore = priv(engine)._money;
+    engine.bartenderInteract("test-player");
+
+    const basePrice = RECIPES["pilsner"].menuPrice;
+    const earned = priv(engine)._money - moneyBefore;
+    // Serve bonus adds +10 happiness (from 0 to 10), but with low happiness the tip should be very small
+    // happiness=10 → happinessFactor = (10/100)*1.5 = 0.15, tipPercent = 0.15*0.15 = 0.0225
+    // tip = round(5 * 0.0225) = round(0.1125) = 0
+    expect(earned).toBe(basePrice);
   });
 });

@@ -1,9 +1,11 @@
 import { DEFAULT_BAR_LAYOUT, type IBarLayout } from "../../Shared/BarLayout";
+import { getActiveLayout } from "../../Shared/LayoutPersistence";
 import { EApplianceType, SEAT_OFFSETS } from "../../Shared/ApplianceTypes";
 import { EItemType } from "../../Shared/ItemTypes";
 import { EDirection, ETileZone } from "../../Shared/TileTypes";
 import { RECIPES, getMenuDrinkKeys, APPLIANCE_VARIANTS, GRAB_VARIANTS } from "../../Shared/DrinkRecipes";
 import { EGuestStatus, EGuestTrait } from "../../Shared/GuestTypes";
+import { EUpgradeId, UPGRADE_CONFIGS, type IUpgradeStateData } from "../../Shared/UpgradeTypes";
 import GameSettings from "../../Shared/GameSettings";
 import { Random } from "../../Utils/Random";
 import type { Vec2 } from "../../../types/Vec2";
@@ -18,6 +20,7 @@ import { Item } from "./GameObjects/Item";
 
 import { GuestSpawner } from "./GameObjects/GuestSpawner";
 import { ShiftManager } from "./GameObjects/ShiftManager";
+import { EditModeManager } from "./GameObjects/EditModeManager";
 import {
   WIDGET_BIN, WIDGET_CARD_HOLDER, WIDGET_GLASS_SHELF, WIDGET_SERVICE_BAR,
   WIDGET_COUNTER, WIDGET_HIGHTOP, WIDGET_TABLE, WIDGET_BAR_QUEUE,
@@ -62,12 +65,14 @@ export class Engine {
   private _policeWarningTriggered: boolean = false;
   private _policeRaidTimer: number = 0;
   private _reputation: number = 0;
-  private _shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0 };
+  private _shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, tipsEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0, restockCost: 0, breakageCost: 0, wasteCost: 0, totalExpenses: 0 };
   private _menuConfig: Map<string, { enabled: boolean; price: number }> = new Map();
   private _barQueue: Appliance | null = null;
   private _queueSlots: { position: Vec2; guestId: string | null }[] = [];
   private _occupiedTiles: Set<string> = new Set();
   private _pendingWash: Map<number, { itemId: string; callback?: () => void }> = new Map();
+  private _editModeManager!: EditModeManager;
+  private _upgradeLevels: Map<EUpgradeId, number> = new Map();
   private _widgetContext: IWidgetContext = {
     createItem: (type: EItemType) => {
       const item = new Item(type);
@@ -91,7 +96,8 @@ export class Engine {
 
   constructor(game: Game) {
     this._game = game;
-    this._layout = DEFAULT_BAR_LAYOUT;
+    // Load layout: use saved placements if available, otherwise default
+    this._layout = { ...DEFAULT_BAR_LAYOUT, appliances: getActiveLayout() };
     this._tileGrid = new TileGrid(this._layout);
     this._money = GameSettings.startingMoney;
 
@@ -126,6 +132,9 @@ export class Engine {
       guestId: null,
     }));
 
+    // Create edit mode manager
+    this._editModeManager = new EditModeManager(this._tileGrid, this._appliances, this._layout);
+
     // Create bartender slots
     for (let i = 0; i < GameSettings.maxPlayers; i++) {
       const spawn = this._layout.playerSpawns[i];
@@ -147,9 +156,15 @@ export class Engine {
       }
       this._pendingWash.clear();
 
+      // Auto-commit edit mode on any phase change away from prep
+      if (this._editModeManager.active) {
+        this._editModeManager.commit();
+        this._rebuildQueueSlots();
+      }
+
       this._guestSpawner.enabled = phase === "service";
       if (phase === "service") {
-        this._shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0 };
+        this._shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, tipsEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0, restockCost: 0, breakageCost: 0, wasteCost: 0, totalExpenses: 0 };
       }
       if (phase === "closing") {
         // Closing transition — force guest state changes
@@ -161,6 +176,7 @@ export class Engine {
           this._shiftManager.startOvertime();
           return; // don't fire shift summary yet
         }
+        this._calculateShiftExpenses();
         this._pushEvent(EEngineEventType.SHIFT_SUMMARY, { ...this._shiftStats });
       }
       this._pushEvent(EEngineEventType.SHIFT_CHANGE, { phase });
@@ -232,6 +248,167 @@ export class Engine {
   }
   set events(val: IEngineEvent[]) {
     this._events = val;
+  }
+
+  // ── Edit Mode API ────────────────────────────────────────────
+
+  get editModeState() {
+    return this._editModeManager.stateData;
+  }
+
+  editModeEnter(): void {
+    if (this._shiftManager.phase !== "prep") return;
+    if (this._guests.size > 0) return;
+    this._editModeManager.enter();
+  }
+
+  editModeExit(commit: boolean): void {
+    if (!this._editModeManager.active) return;
+    if (commit) {
+      this._editModeManager.commit();
+      this._rebuildQueueSlots();
+    } else {
+      this._editModeManager.rollback();
+    }
+  }
+
+  editModePickUp(applianceId: string): void {
+    if (!this._editModeManager.active) return;
+    this._editModeManager.pickUp(applianceId);
+  }
+
+  editModePlace(gridX: number, gridY: number): void {
+    if (!this._editModeManager.active) return;
+    if (this._editModeManager.place(gridX, gridY)) {
+      // Update queue slots if we moved the BAR_QUEUE
+      // (deferred to commit, not per-place)
+    }
+  }
+
+  editModeCancel(): void {
+    if (!this._editModeManager.active) return;
+    this._editModeManager.cancelHold();
+  }
+
+  /** Update the ghost preview position based on a bartender's facing tile. */
+  editModeUpdatePreview(bartenderUuid: string): void {
+    if (!this._editModeManager.active || !this._editModeManager.heldApplianceId) return;
+    const bartender = this.getBartenderById(bartenderUuid);
+    if (!bartender) return;
+    let fx = bartender.gridX;
+    let fy = bartender.gridY;
+    switch (bartender.facing) {
+      case EDirection.UP: fy--; break;
+      case EDirection.DOWN: fy++; break;
+      case EDirection.LEFT: fx--; break;
+      case EDirection.RIGHT: fx++; break;
+    }
+    this._editModeManager.updatePreview(fx, fy);
+  }
+
+  // ── Upgrade API ─────────────────────────────────────────────
+
+  getUpgradeLevel(id: EUpgradeId): number {
+    return this._upgradeLevels.get(id) ?? 0;
+  }
+
+  get upgradeState(): IUpgradeStateData {
+    const levels: Record<string, number> = {};
+    for (const [id, level] of this._upgradeLevels) {
+      levels[id] = level;
+    }
+    return { levels };
+  }
+
+  purchaseUpgrade(upgradeId: string): boolean {
+    if (this._shiftManager.phase !== "prep") return false;
+
+    const config = UPGRADE_CONFIGS.find(c => c.id === upgradeId);
+    if (!config) return false;
+
+    const currentLevel = this.getUpgradeLevel(config.id);
+    if (currentLevel >= config.maxLevel) return false;
+
+    const cost = config.levels[currentLevel].cost;
+    if (this._money < cost) return false;
+
+    this._money -= cost;
+    this._upgradeLevels.set(config.id, currentLevel + 1);
+    this._applyUpgrade(config.id);
+    return true;
+  }
+
+  private _applyUpgrade(id: EUpgradeId): void {
+    const level = this.getUpgradeLevel(id);
+    switch (id) {
+      case EUpgradeId.FAST_SINK: {
+        // Mutate shared WIDGET_SINK config — all sinks share this reference
+        const sinkConfig = WIDGET_CONFIGS[EApplianceType.SINK];
+        if (sinkConfig && sinkConfig.transforms.length > 0) {
+          sinkConfig.transforms[0].duration = GameSettings.washDuration - level * 0.2;
+        }
+        break;
+      }
+      case EUpgradeId.STOCK_CAPACITY: {
+        // Apply new bonus to all stocked appliances (absolute, not incremental)
+        for (const app of this._appliances.values()) {
+          const widgetConfig = WIDGET_CONFIGS[app.type];
+          if (widgetConfig && widgetConfig.stockCapacity > 0) {
+            app.setMaxStock(widgetConfig.stockCapacity + level * 5);
+          }
+        }
+        break;
+      }
+      case EUpgradeId.EXTRA_QUEUE: {
+        this._rebuildQueueSlots();
+        break;
+      }
+    }
+  }
+
+  /** Re-apply stock capacity and queue upgrades (e.g., after layout rebuild). */
+  private _applyAllUpgrades(): void {
+    const stockLevel = this.getUpgradeLevel(EUpgradeId.STOCK_CAPACITY);
+    if (stockLevel > 0) {
+      this._applyUpgrade(EUpgradeId.STOCK_CAPACITY);
+    }
+    // Queue slots are rebuilt via _rebuildQueueSlots which already accounts for upgrade
+  }
+
+  /** Rebuild queue slots from current BAR_QUEUE position. */
+  private _rebuildQueueSlots(): void {
+    // Find bar queue appliance
+    this._barQueue = null;
+    for (const a of this._appliances.values()) {
+      if (a.type === EApplianceType.BAR_QUEUE) {
+        this._barQueue = a;
+        break;
+      }
+    }
+    if (this._barQueue) {
+      const bx = this._barQueue.gridX;
+      const by = this._barQueue.gridY;
+      // Base 7 queue slots
+      this._queueSlots = [
+        { position: { x: bx, y: by + 1 }, guestId: null },
+        { position: { x: bx + 1, y: by + 1 }, guestId: null },
+        { position: { x: bx + 2, y: by + 1 }, guestId: null },
+        { position: { x: bx, y: by + 2 }, guestId: null },
+        { position: { x: bx + 1, y: by + 2 }, guestId: null },
+        { position: { x: bx + 2, y: by + 2 }, guestId: null },
+        { position: { x: bx + 1, y: by + 3 }, guestId: null },
+      ];
+      // Extra queue upgrade: +3 slots per level
+      const queueLevel = this.getUpgradeLevel(EUpgradeId.EXTRA_QUEUE);
+      for (let lvl = 1; lvl <= queueLevel; lvl++) {
+        const rowY = by + 3 + lvl;
+        this._queueSlots.push(
+          { position: { x: bx, y: rowY }, guestId: null },
+          { position: { x: bx + 1, y: rowY }, guestId: null },
+          { position: { x: bx + 2, y: rowY }, guestId: null },
+        );
+      }
+    }
   }
 
   /** Called from ClientPacketHandler when a player updates menu settings */
@@ -552,6 +729,7 @@ export class Engine {
       if (heldItem.type === recipe.resultType) {
         // Serve the drink!
         const isTableGuest = !this.isCounterGuest(guest);
+        const waitTime = guest.state.statusTimer; // capture before setStatus resets it
         guest.adjustPatience(GameSettings.patienceServeBonus);
         guest.adjustHappiness(GameSettings.happinessServeBonus);
 
@@ -594,30 +772,62 @@ export class Engine {
           bartender.setHeldItem(null, null);
         }
 
-        // IMPATIENT fast-serve bonus (served within 10 seconds of ordering)
-        if (guest.hasTrait(EGuestTrait.IMPATIENT) && guest.state.statusTimer < 10) {
-          guest.adjustPatience(GameSettings.impatientFastServeBonus);
+        // Wrath-scaled fast-serve patience bonus (wrathful guests appreciate quick service more)
+        if (waitTime < 10) {
+          const wrathBonus = Math.round(GameSettings.impatientFastServeBonus * guest.personality.wrath);
+          if (wrathBonus > 0) guest.adjustPatience(wrathBonus);
         }
 
-        // Earn money (use configured price, HIGHROLLER tips more)
+        // Earn money: base price + tip
         const menuEntry = this._menuConfig.get(guest.order.drinkKey);
-        let earnings = menuEntry?.price ?? recipe.menuPrice;
-        if (guest.hasTrait(EGuestTrait.HIGHROLLER)) {
-          earnings = Math.round(earnings * GameSettings.highrollerTipMultiplier);
+        const basePrice = menuEntry?.price ?? recipe.menuPrice;
+
+        // Calculate tip: base % scaled by happiness, with speed and preferred drink bonuses
+        const happinessFactor = (guest.happiness / GameSettings.happinessMax) * GameSettings.tipHappinessScale;
+        let tipPercent = GameSettings.tipBasePercent * happinessFactor;
+
+        // Speed bonus: served within threshold seconds of ordering
+        if (waitTime < GameSettings.tipSpeedBonusThreshold) {
+          tipPercent += GameSettings.tipSpeedBonusPercent;
         }
-        this._money += earnings;
-        this._shiftStats.moneyEarned += earnings;
+
+        // Preferred drink bonus
+        if (guest.preferredDrink === guest.order.drinkKey) {
+          tipPercent += GameSettings.tipPreferredDrinkPercent;
+        }
+
+        let tip = Math.round(basePrice * tipPercent);
+
+        // Tier-based tip multiplier
+        const tierStats = GameSettings.guestTierStats[guest.tier];
+        tip = Math.round(tip * tierStats.tipMultiplier);
+
+        // Greed-based tip multiplier: tipMult = 1.8 - 1.3 * greed
+        // Generous (greed=0) = 1.8x, greedy (greed=1) = 0.5x
+        tip = Math.round(tip * (1.8 - 1.3 * guest.personality.greed));
+
+        const totalEarnings = basePrice + tip;
+        this._money += totalEarnings;
+        this._shiftStats.moneyEarned += totalEarnings;
+        this._shiftStats.tipsEarned += tip;
         this._shiftStats.guestsServed++;
         this._pushEvent(EEngineEventType.DRINK_SERVED, {
           guestId: guest.id,
           drinkKey: guest.order.drinkKey,
-          money: earnings,
+          money: totalEarnings,
         });
         this._pushEvent(EEngineEventType.MONEY_EARNED, {
-          amount: earnings,
+          amount: basePrice,
           x: guest.gridX,
           y: guest.gridY,
         });
+        if (tip > 0) {
+          this._pushEvent(EEngineEventType.TIP_EARNED, {
+            amount: tip,
+            x: guest.gridX,
+            y: guest.gridY,
+          });
+        }
       }
       return;
     }
@@ -1013,6 +1223,7 @@ export class Engine {
     if (this._shiftManager.isOvertime) {
       if (this._guests.size === 0) {
         this._shiftManager.endOvertime();
+        this._calculateShiftExpenses();
         this._pushEvent(EEngineEventType.SHIFT_SUMMARY, { ...this._shiftStats });
         this._pushEvent(EEngineEventType.SHIFT_CHANGE, { phase: "prep" });
       } else if (this._shiftManager.overtimeTimer >= GameSettings.overtimeHardCap) {
@@ -1047,6 +1258,8 @@ export class Engine {
 
     // Set collision callbacks — transient-movement guests phase through
     for (const guest of this._guests.values()) {
+      // Walkable terrain check (always set — used by drunk stumble)
+      guest.setWalkableCheck((x, y) => this._tileGrid.isWalkableForGuest(x, y));
       if (phaseThrough(guest.status)) {
         guest.setTileBlockedCheck(null);
       } else {
@@ -1082,6 +1295,16 @@ export class Engine {
         } else if (bartender.isMoving) {
           // Bartender moved — cancel
           this._pendingWash.delete(bartender.number);
+        }
+      }
+    }
+
+    // Update edit mode preview position based on bartender facing
+    if (this._editModeManager.active && this._editModeManager.heldApplianceId) {
+      for (const bartender of this._bartenders) {
+        if (bartender.id !== null) {
+          this.editModeUpdatePreview(bartender.id);
+          break; // only one player controls edit mode
         }
       }
     }
@@ -1213,13 +1436,11 @@ export class Engine {
         this._spawnDirtyGlass();
       }
 
-      // Chance to create mess based on drunkenness + traits
-      if (!guest.hasTrait(EGuestTrait.CLEANLY)) {
-        let messChance = GameSettings.messChanceBase + guest.drunkenness * GameSettings.messChanceDrunkBonus;
-        if (guest.hasTrait(EGuestTrait.MESSY)) messChance *= GameSettings.messyMessMultiplier;
-        if (Random.range(0, 1) < messChance) {
-          this._messes.add(`${guest.gridX},${guest.gridY}`);
-        }
+      // Mess chance driven by sloth: messChance = sloth * 0.3 + drunkenness bonus
+      // Diligent guests (low sloth) barely make messes, slothful guests are messy
+      const messChance = guest.personality.sloth * 0.3 + guest.drunkenness * GameSettings.messChanceDrunkBonus;
+      if (Random.range(0, 1) < messChance) {
+        this._messes.add(`${guest.gridX},${guest.gridY}`);
       }
     }
 
@@ -1352,5 +1573,54 @@ export class Engine {
       }
     }
     // No space — glass is lost (acceptable for prototype)
+  }
+
+  /** Calculate and deduct shift-end expenses (restock, breakage, waste). Called before SHIFT_SUMMARY. */
+  private _calculateShiftExpenses() {
+    let restockCost = 0;
+    let breakageCost = 0;
+    let wasteCost = 0;
+
+    // 1. Restock: proportional to depletion
+    for (const app of this._appliances.values()) {
+      if (app.maxStock > 0 && app.currentStock < app.maxStock) {
+        const used = app.maxStock - app.currentStock;
+        restockCost += Math.round(app.restockCost * used / app.maxStock);
+        app.restock();
+      }
+    }
+
+    // 2. Breakage: per fight
+    breakageCost = this._shiftStats.fights * GameSettings.breakageCostPerFight;
+
+    // 3. Waste: drink items left on surfaces
+    for (const item of this._items.values()) {
+      if (item.locationApplianceId) {
+        const recipe = Object.values(RECIPES).find(r => r.resultType === item.type);
+        if (recipe) wasteCost += recipe.baseCost;
+      }
+    }
+
+    // Clear all remaining items, slots, and held items for next shift
+    this._items.clear();
+    for (const app of this._appliances.values()) {
+      app.clearSlots();
+    }
+    for (const bt of this._bartenders) {
+      bt.setHeldItem(null, null);
+    }
+    this._messes.clear();
+
+    const totalExpenses = restockCost + breakageCost + wasteCost;
+    this._money -= totalExpenses;
+
+    this._shiftStats.restockCost = restockCost;
+    this._shiftStats.breakageCost = breakageCost;
+    this._shiftStats.wasteCost = wasteCost;
+    this._shiftStats.totalExpenses = totalExpenses;
+
+    if (totalExpenses > 0) {
+      this._pushEvent(EEngineEventType.EXPENSE_DEDUCTED, { amount: totalExpenses });
+    }
   }
 }

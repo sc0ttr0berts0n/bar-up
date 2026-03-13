@@ -37,6 +37,16 @@ const GameSettings = {
   startingMoney: 500,
   moneyPerExtraPlayer: 100,
 
+  // Shift-end expenses
+  breakageCostPerFight: 25, // property damage per bar fight
+
+  // Tips
+  tipBasePercent: 0.15, // base tip as fraction of menu price (15%)
+  tipHappinessScale: 1.5, // multiplier: tip scales from 0x at happiness=0 to 1.5x at happiness=100
+  tipSpeedBonusThreshold: 15, // seconds — serve faster than this for speed bonus
+  tipSpeedBonusPercent: 0.10, // extra 10% of price for fast service
+  tipPreferredDrinkPercent: 0.10, // extra 10% of price for serving preferred drink
+
   // Patience (urgency — drives leaving)
   patienceMax: 100,
   patienceStarting: 60,
@@ -55,10 +65,41 @@ const GameSettings = {
   reputationPerHappyGuest: 2,
   reputationPerSadGuest: -3,
 
+  // Guest Tiers
+  guestTierBaseWeights: [25, 65, 10] as [number, number, number], // [LOW, NORMAL, HIGH] at rep=0
+  guestTierRepShift: 0.5, // per reputation point: LOW shrinks, HIGH grows
+  guestTierMinWeight: 5, // floor for any tier %
+  guestTierStats: {
+    low: {
+      patienceMod: -10,
+      happinessMod: -10,
+      roundsRange: [1, 2] as [number, number],
+      tipMultiplier: 0.7,
+      traitWeights: [20, 40, 40] as [number, number, number],
+      positiveTraitChance: 0.25,
+    },
+    normal: {
+      patienceMod: 0,
+      happinessMod: 0,
+      roundsRange: [1, 3] as [number, number],
+      tipMultiplier: 1.0,
+      traitWeights: [40, 40, 20] as [number, number, number],
+      positiveTraitChance: 0.5,
+    },
+    high: {
+      patienceMod: 10,
+      happinessMod: 10,
+      roundsRange: [2, 4] as [number, number],
+      tipMultiplier: 1.3,
+      traitWeights: [30, 40, 30] as [number, number, number],
+      positiveTraitChance: 0.75,
+    },
+  } as const,
+
   // Drunkenness
   sipsPerDrink: 5, // discrete sips per drink
-  sipDrunkenness: 0.06, // drunkenness gained per sip
-  drunkennessDecayRate: 0.003, // passive decay per second (metabolism)
+  sipDrunkenness: 0.10, // drunkenness gained per sip
+  drunkennessDecayRate: 0.001, // passive decay per second (metabolism)
   drunkGoalRange: [0.2, 1.2] as [number, number], // min/max drunk goal per guest
   drunkCoastDuration: [15, 30] as [number, number], // seconds to coast when over goal
   drunkLeaveChance: 0.4, // chance to leave vs coast when over goal

@@ -2,10 +2,27 @@
  * Serving Tests — order taking, drink serving, wrong drink rejection,
  * preferred drink bonus, and full service cycle with dirty glass cleanup.
  */
-import { suite, teleportPlayer, spawnTestGuest, waitTicks, givePlayerItem, delay } from "../TestSuite";
+import { suite, findApplianceByType, teleportPlayer, spawnTestGuest, waitTicks, givePlayerItem, delay } from "../TestSuite";
+import { EApplianceType } from "../Shared/ApplianceTypes";
 import { EGuestStatus } from "../Shared/GuestTypes";
 import { EItemType } from "../Shared/ItemTypes";
 import GameSettings from "../Shared/GameSettings";
+
+/** Helper: craft a drink by grabbing glass + selecting variant at an appliance. */
+async function craftDrink(api: any, appType: EApplianceType, variantIdx: number) {
+  const shelf = findApplianceByType(EApplianceType.GLASS_SHELF);
+  const app = findApplianceByType(appType);
+
+  teleportPlayer(shelf.gridX, shelf.gridY + 1, "up");
+  await waitTicks(2);
+  api.grab();
+  await waitTicks(10);
+
+  teleportPlayer(app.gridX, app.gridY + 1, "up");
+  await waitTicks(2);
+  api.select(variantIdx);
+  await waitTicks(10);
+}
 
 suite.test("take_order", async (ctx) => {
   const eng = ctx.engine();
@@ -35,14 +52,7 @@ suite.test("serve_correct_drink", async (ctx) => {
   const guest = spawnTestGuest(5, EGuestStatus.WAITING_FOR_ORDER, { order: "pilsner" });
 
   // Craft pilsner
-  teleportPlayer(9, 2, "up");
-  await waitTicks(2);
-  ctx.api.grab();
-  await waitTicks(10);
-  teleportPlayer(5, 2, "up");
-  await waitTicks(2);
-  ctx.api.select(0);
-  await waitTicks(10);
+  await craftDrink(ctx.api, EApplianceType.DRAFT_SYSTEM, 0);
   ctx.assertEqual(ctx.api.held(), EItemType.PILSNER, "holding pilsner");
 
   // Serve
@@ -61,14 +71,7 @@ suite.test("serve_wrong_drink", async (ctx) => {
   const guest = spawnTestGuest(5, EGuestStatus.WAITING_FOR_ORDER, { order: "pilsner" });
 
   // Craft lager (variant index 1 at draft)
-  teleportPlayer(9, 2, "up");
-  await waitTicks(2);
-  ctx.api.grab();
-  await waitTicks(10);
-  teleportPlayer(5, 2, "up");
-  await waitTicks(2);
-  ctx.api.select(1); // lager
-  await waitTicks(10);
+  await craftDrink(ctx.api, EApplianceType.DRAFT_SYSTEM, 1);
   ctx.assertEqual(ctx.api.held(), EItemType.LAGER, "holding lager");
 
   // Try to serve — should be rejected
@@ -91,14 +94,7 @@ suite.test("serve_preferred_drink", async (ctx) => {
   const happinessBefore = guest.happiness;
 
   // Craft and serve pilsner
-  teleportPlayer(9, 2, "up");
-  await waitTicks(2);
-  ctx.api.grab();
-  await waitTicks(10);
-  teleportPlayer(5, 2, "up");
-  await waitTicks(2);
-  ctx.api.select(0);
-  await waitTicks(10);
+  await craftDrink(ctx.api, EApplianceType.DRAFT_SYSTEM, 0);
 
   teleportPlayer(5, 2, "down");
   await waitTicks(2);
@@ -116,6 +112,7 @@ suite.test("serve_preferred_drink", async (ctx) => {
 
 suite.test("full_service_cycle", async (ctx) => {
   const eng = ctx.engine();
+  const sink = findApplianceByType(EApplianceType.SINK);
 
   // Restrict menu to pilsner
   for (const [key, config] of eng._menuConfig) {
@@ -132,14 +129,7 @@ suite.test("full_service_cycle", async (ctx) => {
   ctx.assertEqual(guest.status, EGuestStatus.WAITING_FOR_ORDER, "step 1: order taken");
 
   // 2. Craft pilsner
-  teleportPlayer(9, 2, "up");
-  await waitTicks(2);
-  ctx.api.grab();
-  await waitTicks(10);
-  teleportPlayer(5, 2, "up");
-  await waitTicks(2);
-  ctx.api.select(0);
-  await waitTicks(10);
+  await craftDrink(ctx.api, EApplianceType.DRAFT_SYSTEM, 0);
 
   // 3. Serve
   teleportPlayer(5, 2, "down");
@@ -171,11 +161,11 @@ suite.test("full_service_cycle", async (ctx) => {
   await waitTicks(10);
   ctx.assertEqual(ctx.api.held(), EItemType.DIRTY_GLASS, "step 6: holding dirty glass");
 
-  // 7. Wash at sink (14,1)
-  teleportPlayer(14, 2, "up");
+  // 7. Wash at sink — now returns a clean glass
+  teleportPlayer(sink.gridX, sink.gridY + 1, "up");
   await waitTicks(2);
   ctx.api.interact();
   await delay(1500); // wash takes 1.0s
 
-  ctx.assertEqual(ctx.api.held(), "nothing", "step 7: hands empty after washing");
+  ctx.assertEqual(ctx.api.held(), EItemType.GLASS, "step 7: holding clean glass after washing");
 });

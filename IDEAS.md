@@ -14,13 +14,15 @@ please mark these with the following statuses. if not flagged, presume an open e
 - done - trash bin needs a label for how full 1/3 for example
 - done - sinks and other items to hold stuff also need to show how full they are, up to a limit. for now, the link gets cleared of dirty dishes by washing them, which takes 500ms per dish. and the sink maxes out at 20 items.
 - done - prep phase needs an "end" button.
-- feature idea: sometimes groups will be seated were they do not prefer. for example a group wanted a table, but waited at the bar for a table, so when one fills up, they move over.
+- noticed - feature idea: sometimes groups will be seated were they do not prefer. for example a group wanted a table, but waited at the bar for a table, so when one fills up, they move over. *(Covered by 4.6 party system + group dynamics in roadmap)*
 - done - for the chatting feature, it should randomly appear, not always be available. doing one "chat" will make it go away until it randomly comes back
 - done - give more patience when customer goes from "order?" to "waiting for drink"
 - done - remote experiences bug where tapping key makes them move continuously
 - done - caps lock is breaking inputs
-- rarely until crowded, people can sometimes prefer to stand with a drink on a random tile
+- noticed - rarely until crowded, people can sometimes prefer to stand with a drink on a random tile *(Future — fits with 4.6 atmosphere / bar feel)*
 - done - for the a\* pathfinding, prefer not to walk on a person, but do so if necessary.
 - done - bug: after prep phase, you cannot interact with appliances such as wine or draft. presumably, you can't hold glass either.
 - done - happiness needs to be decoupled from patience. consider what should be patience and what should be happiness. patience will drive leaving when patience expires. taking an order will boost patience. patience will rapidly recover when given a drink, and hold steady until drink is empty.
 - done - "re-genericize" glass. glass for all drink types. no stem, shot, pint, etc.
+- noticed - using any beverage that was once glass, such as the beers, wines, and liquors, at the sink, will turn it back into a glass. simulating dumping the glass out. *(Sink should accept all GLASS_TYPES as input, not just DIRTY_GLASS)*
+- noticed - customers will prioritize bar locations with nothing on them. for example, they will prefer to sit at a seat that has no dirty glass. If they must, the must, but first choice is a clean bar. *(Fits with 4.5 population pool / seating affinity)*

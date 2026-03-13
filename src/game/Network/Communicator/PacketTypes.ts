@@ -1,7 +1,8 @@
 import type { IPlayerStateData } from "../../Shared/PlayerTypes";
 import type { IGuestStateData } from "../../Shared/GuestTypes";
-import type { IApplianceStateData } from "../../Shared/ApplianceTypes";
+import type { IApplianceStateData, EApplianceType } from "../../Shared/ApplianceTypes";
 import type { IItemStateData } from "../../Shared/ItemTypes";
+import type { IUpgradeStateData } from "../../Shared/UpgradeTypes";
 import type { EDirection } from "../../Shared/TileTypes";
 import type { UUID } from "./Communicator";
 
@@ -18,6 +19,12 @@ export const PACKET_TYPE = {
   CLIENT_SET_MENU: "client-set-menu",
   CLIENT_RESTOCK: "client-restock",
   CLIENT_SKIP_PHASE: "client-skip-phase",
+  CLIENT_EDIT_ENTER: "client-edit-enter",
+  CLIENT_EDIT_EXIT: "client-edit-exit",
+  CLIENT_EDIT_PICK_UP: "client-edit-pick-up",
+  CLIENT_EDIT_PLACE: "client-edit-place",
+  CLIENT_EDIT_CANCEL: "client-edit-cancel",
+  CLIENT_UPGRADE_PURCHASE: "client-upgrade-purchase",
   SERVER_UPDATE: "server-update",
   SERVER_METADATA: "server-metadata",
 } as const;
@@ -67,6 +74,8 @@ export enum EEngineEventType {
   POLICE_WARNING = 17,
   POLICE_RAID = 18,
   LAST_CALL = 19,
+  TIP_EARNED = 20,
+  EXPENSE_DEDUCTED = 21,
 }
 
 export interface INetworkPacketServerUpdate extends INetworkPacket {
@@ -86,7 +95,18 @@ export interface INetworkPacketServerUpdate extends INetworkPacket {
     policeAttention: number;
     isLastCall: boolean;
     isOvertime: boolean;
+    editMode: IEditModeStateData | null;
+    upgrades: IUpgradeStateData;
   };
+}
+
+export interface IEditModeStateData {
+  active: boolean;
+  heldApplianceId: string | null;
+  heldApplianceType: EApplianceType | null;
+  previewX: number;
+  previewY: number;
+  placementValid: boolean;
 }
 
 export interface INetworkPacketServerMetadata extends ITargetedNetworkPacket {
@@ -153,4 +173,34 @@ export interface INetworkPacketClientRestock extends ITargetedNetworkPacket {
 
 export interface INetworkPacketClientSkipPhase extends ITargetedNetworkPacket {
   type: (typeof PACKET_TYPE)["CLIENT_SKIP_PHASE"];
+}
+
+// ── Edit Mode Packets ─────────────────────────────────────────
+
+export interface INetworkPacketClientEditEnter extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_EDIT_ENTER"];
+}
+
+export interface INetworkPacketClientEditExit extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_EDIT_EXIT"];
+  data: { commit: boolean };
+}
+
+export interface INetworkPacketClientEditPickUp extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_EDIT_PICK_UP"];
+  data: { applianceId: string };
+}
+
+export interface INetworkPacketClientEditPlace extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_EDIT_PLACE"];
+  data: { gridX: number; gridY: number };
+}
+
+export interface INetworkPacketClientEditCancel extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_EDIT_CANCEL"];
+}
+
+export interface INetworkPacketClientUpgradePurchase extends ITargetedNetworkPacket {
+  type: (typeof PACKET_TYPE)["CLIENT_UPGRADE_PURCHASE"];
+  data: { upgradeId: string };
 }

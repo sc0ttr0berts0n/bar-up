@@ -10,6 +10,8 @@ import EventToast from "./EventToast.vue";
 import ShiftSummary from "./ShiftSummary.vue";
 import MenuConfig from "./MenuConfig.vue";
 import StockPanel from "./StockPanel.vue";
+import EditModePanel from "./EditModePanel.vue";
+import UpgradePanel from "./UpgradePanel.vue";
 </script>
 
 <template>
@@ -23,4 +25,6 @@ import StockPanel from "./StockPanel.vue";
   <MenuConfig />
   <StockPanel />
   <ShiftSummary />
+  <EditModePanel />
+  <UpgradePanel />
 </template>

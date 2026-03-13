@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { store } from "../../store/global";
 import { ITEM_DISPLAY } from "../../game/Shared/ItemTypes";
-import { EGuestStatus, EGuestTrait, TRAIT_DISPLAY } from "../../game/Shared/GuestTypes";
+import { EGuestStatus, EGuestTier, EGuestTrait, TIER_DISPLAY, TRAIT_DISPLAY } from "../../game/Shared/GuestTypes";
 import GameSettings from "../../game/Shared/GameSettings";
 
 const guest = computed(() => store.facingGuest);
@@ -78,6 +78,11 @@ const unknownTraitCount = computed(() => {
   return (guest.value.traitCount ?? 0) - (guest.value.revealedTraits?.length ?? 0);
 });
 
+const tierDisplay = computed(() => {
+  if (!guest.value?.tier || guest.value.tier === EGuestTier.NORMAL) return null;
+  return TIER_DISPLAY[guest.value.tier as EGuestTier] ?? null;
+});
+
 const preferredDrinkDisplay = computed(() => {
   if (!guest.value?.preferredDrink) return null;
   return ITEM_DISPLAY[guest.value.preferredDrink] ?? null;
@@ -87,7 +92,10 @@ const preferredDrinkDisplay = computed(() => {
 <template>
   <Transition name="card">
     <div v-if="guest" class="guest-card">
-      <div class="guest-card-name">{{ guest.name }}</div>
+      <div class="guest-card-name">
+        {{ guest.name }}
+        <span v-if="tierDisplay" class="tier-badge" :style="{ color: tierDisplay.color }">{{ tierDisplay.label }}</span>
+      </div>
       <div class="guest-card-status">
         {{ statusLabel }}
         <span v-if="isOverserved" class="overserved-badge">OVERSERVED</span>
@@ -174,6 +182,16 @@ const preferredDrinkDisplay = computed(() => {
   font-weight: bold;
   color: #fff;
   margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tier-badge {
+  font-size: 0.6rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .guest-card-status {

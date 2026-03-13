@@ -7,7 +7,8 @@ import { EItemType } from "../Shared/ItemTypes";
 import { EApplianceType } from "../Shared/ApplianceTypes";
 
 suite.test("grab_glass_from_shelf", async (ctx) => {
-  teleportPlayer(9, 2, "up");
+  const shelf = findApplianceByType(EApplianceType.GLASS_SHELF);
+  teleportPlayer(shelf.gridX, shelf.gridY + 1, "up");
   await waitTicks(2);
   ctx.api.grab();
   await waitTicks(10);
@@ -20,8 +21,9 @@ suite.test("drop_on_counter", async (ctx) => {
   await waitTicks(2);
   ctx.assertEqual(ctx.api.held(), EItemType.GLASS, "holding glass");
 
-  // Face counter at (5,3) and drop
-  teleportPlayer(5, 2, "down");
+  // Find a counter and face it
+  const counter = findApplianceByType(EApplianceType.COUNTER);
+  teleportPlayer(counter.gridX, counter.gridY - 1, "down");
   await waitTicks(2);
   ctx.api.grab(); // E = drop on counter
   await waitTicks(10);
@@ -43,7 +45,7 @@ suite.test("drop_on_counter", async (ctx) => {
 suite.test("pickup_from_counter", async (ctx) => {
   const eng = ctx.engine();
 
-  // Place a glass on counter at (5,3) via engine
+  // Place a glass on counter via engine
   const counter = findApplianceByType(EApplianceType.COUNTER);
   ctx.assertTruthy(counter, "counter exists");
   const item = new Item(EItemType.GLASS);
@@ -52,7 +54,7 @@ suite.test("pickup_from_counter", async (ctx) => {
   counter.setSlot(0, (item as any).id);
 
   // Pick it up
-  teleportPlayer(counter.gridX, 2, "down");
+  teleportPlayer(counter.gridX, counter.gridY - 1, "down");
   await waitTicks(2);
   ctx.api.grab();
   await waitTicks(10);
@@ -61,23 +63,25 @@ suite.test("pickup_from_counter", async (ctx) => {
 });
 
 suite.test("dirty_glass_wash", async (ctx) => {
+  const sink = findApplianceByType(EApplianceType.SINK);
+
   // Give player a dirty glass
   givePlayerItem(EItemType.DIRTY_GLASS);
   await waitTicks(2);
   ctx.assertEqual(ctx.api.held(), EItemType.DIRTY_GLASS, "holding dirty glass");
 
-  // Wash at sink (14,1)
-  teleportPlayer(14, 2, "up");
+  // Wash at sink — now returns clean glass
+  teleportPlayer(sink.gridX, sink.gridY + 1, "up");
   await waitTicks(2);
   ctx.api.interact();
   await delay(1500); // wash animation = 1.0s
 
-  ctx.assertEqual(ctx.api.held(), "nothing", "hands empty after washing");
+  ctx.assertEqual(ctx.api.held(), EItemType.GLASS, "holding clean glass after washing");
 });
 
 suite.test("grab_cutoff_card", async (ctx) => {
-  // Card holder is at (3,1)
-  teleportPlayer(3, 2, "up");
+  const cards = findApplianceByType(EApplianceType.CARD_HOLDER);
+  teleportPlayer(cards.gridX, cards.gridY + 1, "up");
   await waitTicks(2);
   ctx.api.grab();
   await waitTicks(10);

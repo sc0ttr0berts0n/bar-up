@@ -2,9 +2,10 @@
  * Guest Tests — overserve detection, cut-off card, chat/preferences,
  * mess cleanup, slip recovery.
  */
-import { suite, teleportPlayer, spawnTestGuest, waitTicks, givePlayerItem } from "../TestSuite";
+import { suite, teleportPlayer, spawnTestGuest, waitTicks, givePlayerItem, findApplianceByType } from "../TestSuite";
 import { EGuestStatus } from "../Shared/GuestTypes";
 import { EItemType } from "../Shared/ItemTypes";
+import { EApplianceType } from "../Shared/ApplianceTypes";
 import GameSettings from "../Shared/GameSettings";
 
 suite.test("overserve_detection", async (ctx) => {
@@ -20,11 +21,13 @@ suite.test("overserve_detection", async (ctx) => {
   const policeBefore = eng._policeAttention;
 
   // Craft and serve pilsner
-  teleportPlayer(9, 2, "up");
+  const shelf = findApplianceByType(EApplianceType.GLASS_SHELF);
+  const draft = findApplianceByType(EApplianceType.DRAFT_SYSTEM);
+  teleportPlayer(shelf.gridX, shelf.gridY + 1, "up");
   await waitTicks(2);
   ctx.api.grab();
   await waitTicks(10);
-  teleportPlayer(5, 2, "up");
+  teleportPlayer(draft.gridX, draft.gridY + 1, "up");
   await waitTicks(2);
   ctx.api.select(0);
   await waitTicks(10);

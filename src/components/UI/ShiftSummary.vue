@@ -18,7 +18,15 @@ function dismiss() {
             <span class="row-value">{{ store.shiftSummary.guestsServed }} / {{ store.shiftSummary.guestsTotal }}</span>
           </div>
           <div class="summary-row">
-            <span class="row-label">Money Earned</span>
+            <span class="row-label">Sales</span>
+            <span class="row-value money">${{ store.shiftSummary.moneyEarned - store.shiftSummary.tipsEarned }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="row-label">Tips</span>
+            <span class="row-value tips">${{ store.shiftSummary.tipsEarned }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="row-label">Total Earned</span>
             <span class="row-value money">${{ store.shiftSummary.moneyEarned }}</span>
           </div>
           <div class="summary-row">
@@ -26,6 +34,26 @@ function dismiss() {
             <span class="row-value" :class="store.shiftSummary.reputationChange >= 0 ? 'positive' : 'negative'">
               {{ store.shiftSummary.reputationChange >= 0 ? '+' : '' }}{{ store.shiftSummary.reputationChange }}
             </span>
+          </div>
+        </div>
+
+        <div v-if="store.shiftSummary.totalExpenses > 0" class="summary-expenses">
+          <div class="expenses-title">Expenses</div>
+          <div v-if="store.shiftSummary.restockCost" class="summary-row">
+            <span class="row-label">Restock</span>
+            <span class="row-value expense">-${{ store.shiftSummary.restockCost }}</span>
+          </div>
+          <div v-if="store.shiftSummary.breakageCost" class="summary-row">
+            <span class="row-label">Breakage</span>
+            <span class="row-value expense">-${{ store.shiftSummary.breakageCost }}</span>
+          </div>
+          <div v-if="store.shiftSummary.wasteCost" class="summary-row">
+            <span class="row-label">Waste</span>
+            <span class="row-value expense">-${{ store.shiftSummary.wasteCost }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="row-label">Total Expenses</span>
+            <span class="row-value expense">-${{ store.shiftSummary.totalExpenses }}</span>
           </div>
         </div>
 
@@ -87,8 +115,21 @@ function dismiss() {
 .row-label { color: #888; }
 .row-value { color: #eee; font-weight: bold; }
 .row-value.money { color: #ffd93d; }
+.row-value.tips { color: #44cc44; }
+.row-value.expense { color: #ff6b6b; }
 .row-value.positive { color: #44cc44; }
 .row-value.negative { color: #ff4444; }
+
+.summary-expenses {
+  border-top: 1px solid #333;
+  padding-top: 12px;
+  margin-bottom: 16px;
+}
+.expenses-title {
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 6px;
+}
 
 .summary-events {
   border-top: 1px solid #333;

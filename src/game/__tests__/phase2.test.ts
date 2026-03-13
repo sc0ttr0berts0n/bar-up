@@ -7,11 +7,13 @@ import { describe, it, expect } from "vitest";
 import { createTestEngine, tick, priv } from "./engineHelper";
 import { Guest } from "../Network/Server/GameObjects/Guest";
 import { Item } from "../Network/Server/GameObjects/Item";
-import { EGuestStatus, EGuestTrait } from "../Shared/GuestTypes";
+import { EGuestStatus, EGuestTrait, type IPersonality } from "../Shared/GuestTypes";
 import { EItemType } from "../Shared/ItemTypes";
 import { EApplianceType } from "../Shared/ApplianceTypes";
 import { RECIPES } from "../Shared/DrinkRecipes";
 import GameSettings from "../Shared/GameSettings";
+
+const NEUTRAL_PERSONALITY: IPersonality = { wrath: 0.5, greed: 0.5, gluttony: 0.5, sloth: 0.5, pride: 0.5, envy: 0.5, lust: 0.5 };
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -27,6 +29,7 @@ function spawnSeatedGuest(engine: any, counterX: number, opts?: {
   order?: string;
   drunkenness?: number;
   traits?: EGuestTrait[];
+  personality?: Partial<IPersonality>;
 }) {
   const guest = new Guest("test-party", counterX, 4);
   const g = guest as any;
@@ -45,6 +48,7 @@ function spawnSeatedGuest(engine: any, counterX: number, opts?: {
   if (opts?.traits) {
     g._traits = opts.traits;
   }
+  g._personality = { ...NEUTRAL_PERSONALITY, ...(opts?.personality ?? {}) };
 
   // Seat at counter
   const counters = [...priv(engine)._appliances.values()].filter(
@@ -79,74 +83,70 @@ function setupBartender(engine: any, x: number, y: number, facing: string) {
 // ── 2B: HIGHROLLER Tip Multiplier ────────────────────────────
 
 describe("2B: HIGHROLLER tip multiplier", () => {
-  it("HIGHROLLER guest earns 1.5x menu price", () => {
-    const engine = createTestEngine();
-    priv(engine)._guestSpawner.enabled = false;
-
-    const guest = spawnSeatedGuest(engine, 5, {
+  it("generous guest earns more than greedy guest", () => {
+    // Generous serve (low greed → high tip mult)
+    const engine1 = createTestEngine();
+    priv(engine1)._guestSpawner.enabled = false;
+    const guest1 = spawnSeatedGuest(engine1, 5, {
       status: EGuestStatus.WAITING_FOR_ORDER,
       order: "pilsner",
       traits: [EGuestTrait.HIGHROLLER],
+      personality: { greed: 0.1 }, // generous
     });
+    (guest1 as any)._preferredDrink = "lager";
+    const bt1 = setupBartender(engine1, 5, 2, "down");
+    const item1 = new Item(EItemType.PILSNER);
+    item1.pickUp("test-player");
+    priv(engine1)._items.set((item1 as any)._id, item1);
+    (bt1 as any)._heldItemId = (item1 as any)._id;
+    (bt1 as any)._heldItemType = EItemType.PILSNER;
+    const before1 = priv(engine1)._money;
+    engine1.bartenderInteract("test-player");
+    tick(engine1, 20);
+    const hrEarned = priv(engine1)._money - before1;
 
-    // Set up bartender holding a pilsner
-    const bartender = setupBartender(engine, 5, 2, "down");
-    const item = new Item(EItemType.PILSNER);
-    item.pickUp("test-player");
-    priv(engine)._items.set((item as any)._id, item);
-    (bartender as any)._heldItemId = (item as any)._id;
-    (bartender as any)._heldItemType = EItemType.PILSNER;
-
-    const moneyBefore = priv(engine)._money;
-    const recipe = RECIPES["pilsner"];
-    const menuEntry = priv(engine)._menuConfig.get("pilsner");
-    const basePrice = menuEntry?.price ?? recipe.menuPrice;
-
-    engine.bartenderInteract("test-player");
-    tick(engine, 20);
-
-    const expected = Math.round(basePrice * GameSettings.highrollerTipMultiplier);
-    expect(priv(engine)._money - moneyBefore).toBe(expected);
-  });
-
-  it("non-HIGHROLLER guest earns base price", () => {
-    const engine = createTestEngine();
-    priv(engine)._guestSpawner.enabled = false;
-
-    const guest = spawnSeatedGuest(engine, 5, {
+    // Greedy serve (high greed → low tip mult)
+    const engine2 = createTestEngine();
+    priv(engine2)._guestSpawner.enabled = false;
+    const guest2 = spawnSeatedGuest(engine2, 5, {
       status: EGuestStatus.WAITING_FOR_ORDER,
       order: "pilsner",
       traits: [],
+      personality: { greed: 0.9 }, // greedy
     });
+    (guest2 as any)._preferredDrink = "lager";
+    const bt2 = setupBartender(engine2, 5, 2, "down");
+    const item2 = new Item(EItemType.PILSNER);
+    item2.pickUp("test-player");
+    priv(engine2)._items.set((item2 as any)._id, item2);
+    (bt2 as any)._heldItemId = (item2 as any)._id;
+    (bt2 as any)._heldItemType = EItemType.PILSNER;
+    const before2 = priv(engine2)._money;
+    engine2.bartenderInteract("test-player");
+    tick(engine2, 20);
+    const normalEarned = priv(engine2)._money - before2;
 
-    const bartender = setupBartender(engine, 5, 2, "down");
-    const item = new Item(EItemType.PILSNER);
-    item.pickUp("test-player");
-    priv(engine)._items.set((item as any)._id, item);
-    (bartender as any)._heldItemId = (item as any)._id;
-    (bartender as any)._heldItemType = EItemType.PILSNER;
-
-    const moneyBefore = priv(engine)._money;
-    const menuEntry = priv(engine)._menuConfig.get("pilsner");
-    const basePrice = menuEntry?.price ?? RECIPES["pilsner"].menuPrice;
-
-    engine.bartenderInteract("test-player");
-    tick(engine, 20);
-
-    expect(priv(engine)._money - moneyBefore).toBe(basePrice);
+    // Generous should earn strictly more than greedy
+    expect(hrEarned).toBeGreaterThan(normalEarned);
+    // Both should earn at least base price
+    const basePrice = RECIPES["pilsner"].menuPrice;
+    expect(hrEarned).toBeGreaterThan(basePrice);
+    expect(normalEarned).toBeGreaterThanOrEqual(basePrice);
   });
 });
 
 // ── 2C: CLEANLY Trait Effect ─────────────────────────────────
 
-describe("2C: CLEANLY trait effect", () => {
-  it("CLEANLY guest never creates mess on drink finish", () => {
+describe("2C: Sloth-driven mess chance", () => {
+  it("diligent guest (low sloth) rarely creates mess on drink finish", () => {
     const engine = createTestEngine();
     priv(engine)._guestSpawner.enabled = false;
 
     const guest = spawnSeatedGuest(engine, 5, {
       status: EGuestStatus.DRINKING,
       traits: [EGuestTrait.CLEANLY],
+      drunkenness: 0, // sober, sloth=0 → messChance = 0*0.3 + 0*0.3 = 0
+      personality: { sloth: 0.0 },
     });
 
     // Set up drink state so it completes quickly
@@ -166,15 +166,16 @@ describe("2C: CLEANLY trait effect", () => {
     expect(priv(engine)._messes.size).toBe(messesBefore);
   });
 
-  it("non-CLEANLY guest can create mess (with 100% chance)", () => {
+  it("slothful guest can create mess", () => {
     const engine = createTestEngine();
     priv(engine)._guestSpawner.enabled = false;
 
-    // Force 100% mess chance by setting drunkenness high
+    // sloth=0.8, drunkenness=1.0: messChance = 0.8*0.3 + 1.0*0.3 = 0.54
     const guest = spawnSeatedGuest(engine, 5, {
       status: EGuestStatus.DRINKING,
       drunkenness: 1.0,
       traits: [EGuestTrait.MESSY],
+      personality: { sloth: 0.8 },
     });
 
     const g = guest as any;
@@ -184,8 +185,7 @@ describe("2C: CLEANLY trait effect", () => {
     g._sipsTaken = GameSettings.sipsPerDrink;
     g._roundsRemaining = 0;
 
-    // Run many trials — with drunkenness=1.0 + MESSY, chance = (0.1 + 1.0*0.3) * 1.5 = 0.6
-    // At least one mess should appear over several guests
+    // Run many trials — with sloth=0.8 + drunk=1.0, messChance = 0.54
     let messCreated = false;
     for (let trial = 0; trial < 20; trial++) {
       const eng2 = createTestEngine();
@@ -194,6 +194,7 @@ describe("2C: CLEANLY trait effect", () => {
         status: EGuestStatus.DRINKING,
         drunkenness: 1.0,
         traits: [EGuestTrait.MESSY],
+        personality: { sloth: 0.8 },
       });
       const gp = g2 as any;
       gp._drinkDuration = 1;

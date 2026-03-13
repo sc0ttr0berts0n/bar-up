@@ -20,11 +20,13 @@ suite.test("overserve_flash", async (ctx) => {
   });
 
   // Craft and serve pilsner
-  teleportPlayer(9, 2, "up");
+  const shelf = findApplianceByType(EApplianceType.GLASS_SHELF);
+  const draft = findApplianceByType(EApplianceType.DRAFT_SYSTEM);
+  teleportPlayer(shelf.gridX, shelf.gridY + 1, "up");
   await waitTicks(2);
   ctx.api.grab();
   await waitTicks(10);
-  teleportPlayer(5, 2, "up");
+  teleportPlayer(draft.gridX, draft.gridY + 1, "up");
   await waitTicks(2);
   ctx.api.select(0);
   await waitTicks(10);

@@ -53,6 +53,20 @@ export class ClientPacketHandler {
     }),
   });
   private static _schemaSkipPhase = ClientPacketHandler.schemaBasePacket;
+  private static _schemaEditEnter = ClientPacketHandler.schemaBasePacket;
+  private static _schemaEditExit = ClientPacketHandler.schemaBasePacket.extend({
+    data: z.object({ commit: z.boolean() }),
+  });
+  private static _schemaEditPickUp = ClientPacketHandler.schemaBasePacket.extend({
+    data: z.object({ applianceId: z.string() }),
+  });
+  private static _schemaEditPlace = ClientPacketHandler.schemaBasePacket.extend({
+    data: z.object({ gridX: z.number().int(), gridY: z.number().int() }),
+  });
+  private static _schemaEditCancel = ClientPacketHandler.schemaBasePacket;
+  private static _schemaUpgradePurchase = ClientPacketHandler.schemaBasePacket.extend({
+    data: z.object({ upgradeId: z.string() }),
+  });
 
   static handle<T extends ITargetedNetworkPacket>(packet: T) {
     switch (packet.type) {
@@ -124,6 +138,36 @@ export class ClientPacketHandler {
         ClientPacketHandler._handleSkipPhase();
         break;
       }
+      case PACKET_TYPE.CLIENT_EDIT_ENTER: {
+        ClientPacketHandler._schemaEditEnter.parse(packet);
+        Server.game?.engine.editModeEnter();
+        break;
+      }
+      case PACKET_TYPE.CLIENT_EDIT_EXIT: {
+        const validPacket = ClientPacketHandler._schemaEditExit.parse(packet);
+        Server.game?.engine.editModeExit((validPacket as any).data.commit);
+        break;
+      }
+      case PACKET_TYPE.CLIENT_EDIT_PICK_UP: {
+        const validPacket = ClientPacketHandler._schemaEditPickUp.parse(packet);
+        Server.game?.engine.editModePickUp((validPacket as any).data.applianceId);
+        break;
+      }
+      case PACKET_TYPE.CLIENT_EDIT_PLACE: {
+        const validPacket = ClientPacketHandler._schemaEditPlace.parse(packet);
+        Server.game?.engine.editModePlace((validPacket as any).data.gridX, (validPacket as any).data.gridY);
+        break;
+      }
+      case PACKET_TYPE.CLIENT_EDIT_CANCEL: {
+        ClientPacketHandler._schemaEditCancel.parse(packet);
+        Server.game?.engine.editModeCancel();
+        break;
+      }
+      case PACKET_TYPE.CLIENT_UPGRADE_PURCHASE: {
+        const validPacket = ClientPacketHandler._schemaUpgradePurchase.parse(packet);
+        Server.game?.engine.purchaseUpgrade((validPacket as any).data.upgradeId);
+        break;
+      }
       default:
         return null;
     }
@@ -168,8 +212,12 @@ export class ClientPacketHandler {
   }
 
   private static _handleSkipPhase() {
-    if (Server.game?.engine.shiftManager.phase === "prep") {
-      Server.game.engine.shiftManager.skipPhase();
+    const phase = Server.game?.engine.shiftManager.phase;
+    if (!phase) return;
+    if (phase === "prep") {
+      // Auto-commit edit mode if active before skipping
+      Server.game!.engine.editModeExit(true);
     }
+    Server.game!.engine.shiftManager.skipPhase();
   }
 }
