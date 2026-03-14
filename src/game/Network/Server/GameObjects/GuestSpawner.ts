@@ -1,5 +1,6 @@
 import GameSettings from "../../../Shared/GameSettings";
 import { EGuestStatus, EGuestTier, type IPersonality, PERSONALITY_DIMENSIONS } from "../../../Shared/GuestTypes";
+import { ESpecialEvent } from "../../../Shared/EventTypes";
 import { Random } from "../../../Utils/Random";
 import type { Engine } from "../Engine";
 import { Guest } from "./Guest";
@@ -44,7 +45,10 @@ export class GuestSpawner {
     const playerScale = this._getPlayerScale();
     // Reputation adjusts spawn interval: higher rep = faster spawns
     const repFactor = Math.max(0.3, 1 - this._engine.reputation * 0.01);
-    const adjustedInterval = GameSettings.guestSpawnInterval * repFactor / playerScale;
+    // Happy Hour: spawn rate multiplier (1.5x faster = divide interval by 1.5)
+    const eventSpawnMult = this._engine.isEventActive(ESpecialEvent.HAPPY_HOUR)
+      ? GameSettings.eventHappyHourSpawnMultiplier : 1;
+    const adjustedInterval = GameSettings.guestSpawnInterval * repFactor / playerScale / eventSpawnMult;
     if (this._timeSinceLastSpawn >= adjustedInterval) {
       this._timeSinceLastSpawn = 0;
       this._spawnParty();
@@ -55,13 +59,25 @@ export class GuestSpawner {
     const guestCap = Math.floor(GameSettings.maxConcurrentGuests * this._getPlayerScale());
     if (this._engine.guests.size >= guestCap) return;
 
-    const partySize = this._rollPartySize();
+    let partySize = this._rollPartySize();
+    // Sports Night: force groups of 4
+    if (this._engine.isEventActive(ESpecialEvent.SPORTS_NIGHT)) {
+      partySize = GameSettings.eventSportsNightForcedPartySize;
+    }
     // Don't spawn if party would exceed cap
     if (this._engine.guests.size + partySize > guestCap) return;
 
     const partyId = Random.uuid();
     const entrance = this._engine.layout.guestEntrance;
-    const tier = this._rollTier();
+    // VIP Night: guarantee HIGH tier for first N guests
+    let tier: EGuestTier;
+    if (this._engine.isEventActive(ESpecialEvent.VIP_NIGHT) &&
+        (this._engine as any)._vipSpawnedCount < GameSettings.eventVIPGuaranteedCount) {
+      tier = EGuestTier.HIGH;
+      (this._engine as any)._vipSpawnedCount += partySize;
+    } else {
+      tier = this._rollTier();
+    }
 
     // Try to find group seating for the whole party
     const seats = this._engine.findGroupSeating(partySize);
@@ -70,13 +86,24 @@ export class GuestSpawner {
     const guests: Guest[] = [];
     for (let i = 0; i < partySize; i++) {
       const guest = new Guest(partyId, entrance.x, entrance.y);
-      const personality = this._rollPersonality(tier);
+      let personality = this._rollPersonality(tier);
+      // Sports Night: bias gluttony high
+      if (this._engine.isEventActive(ESpecialEvent.SPORTS_NIGHT)) {
+        personality = {
+          ...personality,
+          gluttony: Math.max(personality.gluttony, Random.gaussian(GameSettings.eventSportsNightGluttonyMean, 0.1)),
+        };
+      }
       guest.setPersonality(personality);
       guest.applyTier(tier);
       // Gluttony drives rounds: 1 + floor(gluttony * 3) => 1-4
       // Blend with tier rounds — take the max
-      const gluttonyRounds = 1 + Math.floor(personality.gluttony * 3);
+      let gluttonyRounds = 1 + Math.floor(personality.gluttony * 3);
       guest.setRounds(Math.min(4, Math.max(guest.roundsRemaining, gluttonyRounds)));
+      // Sports Night: extra rounds
+      if (this._engine.isEventActive(ESpecialEvent.SPORTS_NIGHT)) {
+        guest.setRounds(guest.roundsRemaining + GameSettings.eventSportsNightExtraRounds);
+      }
       guests.push(guest);
     }
 

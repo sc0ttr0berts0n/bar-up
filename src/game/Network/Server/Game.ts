@@ -75,6 +75,7 @@ export class Game {
           atmosphere: this.engine.atmosphere,
           editMode: this.engine.editModeState,
           upgrades: this.engine.upgradeState,
+          specialEvent: this.engine.currentEvent,
         },
       });
 
