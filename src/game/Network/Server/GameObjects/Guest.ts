@@ -488,7 +488,7 @@ export class Guest {
         const nextSipAt = (this._sipsTaken + 1) * sipInterval;
         if (this._drinkProgress >= nextSipAt && this._sipsTaken < GameSettings.sipsPerDrink) {
           this._sipsTaken++;
-          let sipAmount = GameSettings.sipDrunkenness;
+          let sipAmount: number = GameSettings.sipDrunkenness;
           if (this._isDesignatedDriver) {
             sipAmount = 0; // DD never gets drunk
           } else {

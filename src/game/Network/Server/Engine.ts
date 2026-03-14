@@ -90,7 +90,7 @@ export class Engine {
       this._pendingWash.set(bartender.number, { itemId: "widget", callback: onComplete });
     },
     pushEvent: (type, data) => {
-      this._pushEvent(type as EEngineEventType, data);
+      this._pushEvent(type as unknown as EEngineEventType, data);
     },
   };
 
@@ -344,7 +344,7 @@ export class Engine {
       case EUpgradeId.FAST_SINK: {
         // Mutate shared WIDGET_SINK config — all sinks share this reference
         const sinkConfig = WIDGET_CONFIGS[EApplianceType.SINK];
-        if (sinkConfig && sinkConfig.transforms.length > 0) {
+        if (sinkConfig && sinkConfig.transforms && sinkConfig.transforms.length > 0) {
           sinkConfig.transforms[0].duration = GameSettings.washDuration - level * 0.2;
         }
         break;
