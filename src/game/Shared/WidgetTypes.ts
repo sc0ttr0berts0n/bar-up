@@ -257,3 +257,57 @@ export const WIDGET_SINK: IWidgetConfig = {
   }],
   seats: { north: 0, south: 0, east: 0, west: 0 },
 };
+
+// ── Upgrade-unlocked Appliances ──────────────────────────────
+
+export const WIDGET_KITCHEN: IWidgetConfig = {
+  type: EApplianceType.KITCHEN,
+  label: "Kitchen",
+  color: 0xcc6633,
+  sizeX: 2,
+  sizeY: 1,
+  topSlots: 4,
+  topSlotMode: "normal",
+  stockCapacity: 15,
+  restockCost: 20,
+  seats: { north: 0, south: 0, east: 0, west: 0 },
+};
+
+export const WIDGET_GARNISH_STATION: IWidgetConfig = {
+  type: EApplianceType.GARNISH_STATION,
+  label: "Garnish",
+  color: 0x66cc66,
+  sizeX: 1,
+  sizeY: 1,
+  topSlots: 4,
+  topSlotMode: "normal",
+  stockCapacity: 15,
+  restockCost: 10,
+  seats: { north: 0, south: 0, east: 0, west: 0 },
+};
+
+export const WIDGET_SHAKER: IWidgetConfig = {
+  type: EApplianceType.SHAKER,
+  label: "Shaker",
+  color: 0xc0c0c0,
+  sizeX: 1,
+  sizeY: 1,
+  topSlots: 2,
+  topSlotMode: "normal",
+  stockCapacity: 0,
+  restockCost: 0,
+  seats: { north: 0, south: 0, east: 0, west: 0 },
+};
+
+export const WIDGET_JUKEBOX: IWidgetConfig = {
+  type: EApplianceType.JUKEBOX,
+  label: "Jukebox",
+  color: 0xff6699,
+  sizeX: 1,
+  sizeY: 1,
+  topSlots: 0,
+  topSlotMode: "normal",
+  stockCapacity: 0,
+  restockCost: 0,
+  seats: { north: 0, south: 0, east: 0, west: 0 },
+};

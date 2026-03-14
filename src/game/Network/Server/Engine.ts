@@ -1,4 +1,4 @@
-import { DEFAULT_BAR_LAYOUT, type IBarLayout } from "../../Shared/BarLayout";
+import { DEFAULT_BAR_LAYOUT, UPGRADE_APPLIANCE_POSITIONS, type IBarLayout } from "../../Shared/BarLayout";
 import { getActiveLayout } from "../../Shared/LayoutPersistence";
 import { EApplianceType, SEAT_OFFSETS } from "../../Shared/ApplianceTypes";
 import { EItemType } from "../../Shared/ItemTypes";
@@ -26,6 +26,7 @@ import {
   WIDGET_COUNTER, WIDGET_HIGHTOP, WIDGET_TABLE, WIDGET_BAR_QUEUE,
   WIDGET_DRAFT_SYSTEM, WIDGET_WINE_RACK, WIDGET_LIQUOR_RAIL,
   WIDGET_ICE_WELL, WIDGET_SINK,
+  WIDGET_KITCHEN, WIDGET_GARNISH_STATION, WIDGET_SHAKER, WIDGET_JUKEBOX,
   type IWidgetConfig,
 } from "../../Shared/WidgetTypes";
 import type { Game } from "./Game";
@@ -45,6 +46,10 @@ const WIDGET_CONFIGS: Partial<Record<EApplianceType, IWidgetConfig>> = {
   [EApplianceType.LIQUOR_RAIL]: WIDGET_LIQUOR_RAIL,
   [EApplianceType.ICE_WELL]: WIDGET_ICE_WELL,
   [EApplianceType.SINK]: WIDGET_SINK,
+  [EApplianceType.KITCHEN]: WIDGET_KITCHEN,
+  [EApplianceType.GARNISH_STATION]: WIDGET_GARNISH_STATION,
+  [EApplianceType.SHAKER]: WIDGET_SHAKER,
+  [EApplianceType.JUKEBOX]: WIDGET_JUKEBOX,
 };
 
 export class Engine {
@@ -342,6 +347,18 @@ export class Engine {
     return true;
   }
 
+  /** Get the carry capacity for bartenders based on Tray Stand upgrade level. */
+  get carryCapacity(): number {
+    const level = this.getUpgradeLevel(EUpgradeId.TRAY_STAND);
+    return 1 + level; // base 1, +1 per level (2 at lv1, 3 at lv2)
+  }
+
+  /** Get the atmosphere bonus from the Jukebox upgrade. */
+  get atmosphereBonus(): number {
+    const level = this.getUpgradeLevel(EUpgradeId.JUKEBOX);
+    return level * 5; // +5 per level
+  }
+
   private _applyUpgrade(id: EUpgradeId): void {
     const level = this.getUpgradeLevel(id);
     switch (id) {
@@ -367,16 +384,99 @@ export class Engine {
         this._rebuildQueueSlots();
         break;
       }
+      case EUpgradeId.TRAY_STAND: {
+        // Passive effect — carryCapacity getter reads upgrade level directly
+        break;
+      }
+      case EUpgradeId.KITCHEN: {
+        this._placeUpgradeAppliance("kitchen");
+        if (level === 2) {
+          // +50% food stock for kitchen appliances
+          for (const app of this._appliances.values()) {
+            if (app.type === EApplianceType.KITCHEN) {
+              const baseStock = WIDGET_KITCHEN.stockCapacity;
+              const stockBonus = this.getUpgradeLevel(EUpgradeId.STOCK_CAPACITY) * 5;
+              app.setMaxStock(Math.round(baseStock * 1.5) + stockBonus);
+            }
+          }
+        }
+        break;
+      }
+      case EUpgradeId.GARNISH_STATION: {
+        this._placeUpgradeAppliance("garnish_station");
+        break;
+      }
+      case EUpgradeId.SHAKER: {
+        this._placeUpgradeAppliance("shaker");
+        break;
+      }
+      case EUpgradeId.JUKEBOX: {
+        this._placeUpgradeAppliance("jukebox");
+        // Passive effect — atmosphereBonus getter reads upgrade level directly
+        break;
+      }
     }
   }
 
-  /** Re-apply stock capacity and queue upgrades (e.g., after layout rebuild). */
+  /** Place an upgrade-unlocked appliance at its predetermined position (only on first purchase). */
+  private _placeUpgradeAppliance(key: string): void {
+    const placement = UPGRADE_APPLIANCE_POSITIONS[key];
+    if (!placement) return;
+
+    // Check if already placed (don't duplicate on level 2 purchase)
+    for (const app of this._appliances.values()) {
+      if (app.type === placement.type) return;
+    }
+
+    const widgetConfig = WIDGET_CONFIGS[placement.type];
+    const appliance = widgetConfig
+      ? new Widget(widgetConfig, placement.gridX, placement.gridY)
+      : new Appliance(placement.type, placement.gridX, placement.gridY);
+    this._appliances.set(appliance.id, appliance);
+
+    // Mark tiles as occupied
+    for (let dy = 0; dy < appliance.sizeY; dy++) {
+      for (let dx = 0; dx < appliance.sizeX; dx++) {
+        this._tileGrid.setApplianceId(
+          placement.gridX + dx,
+          placement.gridY + dy,
+          appliance.id,
+        );
+      }
+    }
+
+    // Apply stock capacity upgrade to newly placed appliance if applicable
+    const stockLevel = this.getUpgradeLevel(EUpgradeId.STOCK_CAPACITY);
+    if (stockLevel > 0 && widgetConfig && widgetConfig.stockCapacity > 0) {
+      appliance.setMaxStock(widgetConfig.stockCapacity + stockLevel * 5);
+    }
+  }
+
+  /** Re-apply all upgrades (e.g., after layout rebuild). */
   private _applyAllUpgrades(): void {
     const stockLevel = this.getUpgradeLevel(EUpgradeId.STOCK_CAPACITY);
     if (stockLevel > 0) {
       this._applyUpgrade(EUpgradeId.STOCK_CAPACITY);
     }
     // Queue slots are rebuilt via _rebuildQueueSlots which already accounts for upgrade
+
+    // Re-place upgrade appliances if they were purchased
+    const applianceUpgrades: { key: string; id: EUpgradeId }[] = [
+      { key: "kitchen", id: EUpgradeId.KITCHEN },
+      { key: "garnish_station", id: EUpgradeId.GARNISH_STATION },
+      { key: "shaker", id: EUpgradeId.SHAKER },
+      { key: "jukebox", id: EUpgradeId.JUKEBOX },
+    ];
+    for (const { key, id } of applianceUpgrades) {
+      if (this.getUpgradeLevel(id) > 0) {
+        this._placeUpgradeAppliance(key);
+      }
+    }
+
+    // Re-apply kitchen level 2 bonus
+    if (this.getUpgradeLevel(EUpgradeId.KITCHEN) >= 2) {
+      this._applyUpgrade(EUpgradeId.KITCHEN);
+    }
   }
 
   /** Rebuild queue slots from current BAR_QUEUE position. */
