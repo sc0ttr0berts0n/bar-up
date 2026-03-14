@@ -540,10 +540,12 @@ class Game extends Singleton<Game>() {
     if (data.editMode) {
       store.editMode.active = data.editMode.active;
       store.editMode.heldType = data.editMode.heldApplianceType;
+      store.editMode.heldByUuid = data.editMode.heldByUuid ?? null;
       store.editMode.placementValid = data.editMode.placementValid;
 
-      // Ghost preview rendering
-      if (data.editMode.heldApplianceId && data.editMode.heldApplianceType) {
+      // Ghost preview rendering — only show for the player who picked up
+      const isLocalHolding = data.editMode.heldByUuid === Communicator.uuid;
+      if (isLocalHolding && data.editMode.heldApplianceId && data.editMode.heldApplianceType) {
         this.level?.showGhostPreview(
           data.editMode.heldApplianceType,
           data.editMode.previewX,
@@ -557,6 +559,7 @@ class Game extends Singleton<Game>() {
       // Edit mode was deactivated
       store.editMode.active = false;
       store.editMode.heldType = null;
+      store.editMode.heldByUuid = null;
       store.editMode.placementValid = false;
       this.level?.showGhostPreview(null, 0, 0, false);
     }

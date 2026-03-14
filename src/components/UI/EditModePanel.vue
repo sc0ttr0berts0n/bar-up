@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { store } from "../../store/global";
+import Communicator from "../../game/Network/Communicator/Communicator";
 
 const APPLIANCE_NAMES: Record<string, string> = {
   counter: "Counter",
@@ -18,8 +19,12 @@ const APPLIANCE_NAMES: Record<string, string> = {
   bar_queue: "Bar Queue",
 };
 
+const isLocalHolding = computed(() => {
+  return store.editMode.heldByUuid === Communicator.uuid;
+});
+
 const heldName = computed(() => {
-  if (!store.editMode.heldType) return null;
+  if (!isLocalHolding.value || !store.editMode.heldType) return null;
   return APPLIANCE_NAMES[store.editMode.heldType] ?? store.editMode.heldType;
 });
 </script>
