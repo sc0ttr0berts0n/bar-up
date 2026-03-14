@@ -21,8 +21,26 @@ const ITEM_ICONS: Record<EItemType, string> = {
   [EItemType.VODKA]: "🥃",
   [EItemType.GIN]: "🥃",
   [EItemType.RUM]: "🥃",
-  // Mixed
+  // Wine extras
+  [EItemType.PROSECCO]: "🍷",
+  // Spirit extras
+  [EItemType.TEQUILA]: "🥃",
+  // Mixed / Cocktails
   [EItemType.HIGHBALL]: "🍹",
+  [EItemType.GIN_TONIC]: "🍹",
+  [EItemType.RUM_COLA]: "🍹",
+  [EItemType.MARTINI_SHAKEN]: "🍸",
+  [EItemType.OLD_FASHIONED_SHAKEN]: "🥃",
+  [EItemType.MARGARITA_SHAKEN]: "🍹",
+  [EItemType.LONG_ISLAND_BASE]: "🍹",
+  [EItemType.LONG_ISLAND_SHAKEN]: "🍹",
+  [EItemType.SPRITZ_MIX]: "🍹",
+  [EItemType.SPRITZ]: "🍹",
+  [EItemType.MARTINI]: "🍸",
+  [EItemType.OLD_FASHIONED]: "🥃",
+  [EItemType.MARGARITA]: "🍹",
+  [EItemType.LONG_ISLAND]: "🍹",
+  [EItemType.ESPRESSO_MARTINI]: "🍸",
   // Other
   [EItemType.DIRTY_GLASS]: "💀",
   [EItemType.CUT_OFF_CARD]: "🚫",

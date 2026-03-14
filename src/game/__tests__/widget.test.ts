@@ -12,7 +12,7 @@ import {
   WIDGET_BIN, WIDGET_CARD_HOLDER, WIDGET_GLASS_SHELF, WIDGET_SERVICE_BAR,
   WIDGET_COUNTER, WIDGET_HIGHTOP, WIDGET_TABLE, WIDGET_BAR_QUEUE,
   WIDGET_DRAFT_SYSTEM, WIDGET_WINE_RACK, WIDGET_LIQUOR_RAIL,
-  WIDGET_ICE_WELL, WIDGET_SINK,
+  WIDGET_ICE_WELL, WIDGET_SINK, WIDGET_SHAKER, WIDGET_GARNISH_STATION,
   type IWidgetConfig,
 } from "../Shared/WidgetTypes";
 import { createTestEngine } from "./engineHelper";
@@ -619,76 +619,141 @@ describe("Widget variant appliances", () => {
   });
 });
 
-// ── Widget ICE_WELL (instant transform) ─────────────────────
+// ── Widget ICE_WELL (now variant appliance, no transforms) ──
 
-describe("Widget ICE_WELL handleInteract", () => {
-  it("transforms spirit to highball", () => {
+describe("Widget ICE_WELL", () => {
+  it("has 0 top slots", () => {
+    const w = new Widget(WIDGET_ICE_WELL, 11, 1);
+    expect(w.state.maxSlots).toBe(0);
+  });
+
+  it("has stock capacity of 20", () => {
+    const w = new Widget(WIDGET_ICE_WELL, 11, 1);
+    expect(w.currentStock).toBe(20);
+  });
+
+  it("has no transforms (variant appliance now)", () => {
+    expect(WIDGET_ICE_WELL.transforms).toBeUndefined();
+  });
+
+  it("handleInteract returns false (no transforms)", () => {
     const w = new Widget(WIDGET_ICE_WELL, 11, 1);
     const bt = mockBartender();
     const ctx = mockContext();
     const whiskey = giveItem(bt, EItemType.WHISKEY, ctx);
 
     const handled = w.handleInteract(bt, whiskey, ctx);
+    expect(handled).toBe(false);
+  });
+});
+
+// ── Widget SHAKER (timed transform) ─────────────────────────
+
+describe("Widget SHAKER handleInteract", () => {
+  it("starts timed shake for gin", () => {
+    const w = new Widget(WIDGET_SHAKER, 12, 1);
+    const bt = mockBartender();
+    const ctx = mockContext();
+    const gin = giveItem(bt, EItemType.GIN, ctx);
+
+    const handled = w.handleInteract(bt, gin, ctx);
 
     expect(handled).toBe(true);
-    expect(whiskey.type).toBe(EItemType.HIGHBALL);
-    expect((bt as any)._heldItemType).toBe(EItemType.HIGHBALL);
-    expect(w.currentStock).toBe(19); // depleted
+    expect(ctx.timedCallback).not.toBeNull();
   });
 
-  it("transforms all spirit types", () => {
-    for (const spiritType of [EItemType.WHISKEY, EItemType.VODKA, EItemType.GIN, EItemType.RUM]) {
-      const w = new Widget(WIDGET_ICE_WELL, 11, 1);
-      const bt = mockBartender();
-      const ctx = mockContext();
-      const spirit = giveItem(bt, spiritType, ctx);
+  it("timed callback transforms gin to martini_shaken", () => {
+    const w = new Widget(WIDGET_SHAKER, 12, 1);
+    const bt = mockBartender();
+    const ctx = mockContext();
+    const gin = giveItem(bt, EItemType.GIN, ctx);
 
-      expect(w.handleInteract(bt, spirit, ctx)).toBe(true);
-      expect(spirit.type).toBe(EItemType.HIGHBALL);
-    }
+    w.handleInteract(bt, gin, ctx);
+    ctx.timedCallback!();
+
+    expect(gin.type).toBe(EItemType.MARTINI_SHAKEN);
+    expect(bt.state.heldItemType).toBe(EItemType.MARTINI_SHAKEN);
   });
 
-  it("rejects non-spirit items", () => {
-    const w = new Widget(WIDGET_ICE_WELL, 11, 1);
+  it("transforms whiskey to old_fashioned_shaken", () => {
+    const w = new Widget(WIDGET_SHAKER, 12, 1);
+    const bt = mockBartender();
+    const ctx = mockContext();
+    const whiskey = giveItem(bt, EItemType.WHISKEY, ctx);
+
+    w.handleInteract(bt, whiskey, ctx);
+    ctx.timedCallback!();
+
+    expect(whiskey.type).toBe(EItemType.OLD_FASHIONED_SHAKEN);
+  });
+
+  it("transforms tequila to margarita_shaken", () => {
+    const w = new Widget(WIDGET_SHAKER, 12, 1);
+    const bt = mockBartender();
+    const ctx = mockContext();
+    const tequila = giveItem(bt, EItemType.TEQUILA, ctx);
+
+    w.handleInteract(bt, tequila, ctx);
+    ctx.timedCallback!();
+
+    expect(tequila.type).toBe(EItemType.MARGARITA_SHAKEN);
+  });
+
+  it("transforms long_island_base to long_island_shaken", () => {
+    const w = new Widget(WIDGET_SHAKER, 12, 1);
+    const bt = mockBartender();
+    const ctx = mockContext();
+    const base = giveItem(bt, EItemType.LONG_ISLAND_BASE, ctx);
+
+    w.handleInteract(bt, base, ctx);
+    ctx.timedCallback!();
+
+    expect(base.type).toBe(EItemType.LONG_ISLAND_SHAKEN);
+  });
+
+  it("rejects non-shakeable items", () => {
+    const w = new Widget(WIDGET_SHAKER, 12, 1);
     const bt = mockBartender();
     const ctx = mockContext();
     const glass = giveItem(bt, EItemType.GLASS, ctx);
 
     const handled = w.handleInteract(bt, glass, ctx);
     expect(handled).toBe(false);
-    expect(glass.type).toBe(EItemType.GLASS); // unchanged
+    expect(glass.type).toBe(EItemType.GLASS);
   });
 
-  it("out of stock rejects transform", () => {
-    const w = new Widget(WIDGET_ICE_WELL, 11, 1);
-    for (let i = 0; i < 20; i++) w.depleteStock();
+  it("has 0 top slots and no stock", () => {
+    const w = new Widget(WIDGET_SHAKER, 12, 1);
+    expect(w.state.maxSlots).toBe(0);
     expect(w.currentStock).toBe(0);
-
-    const bt = mockBartender();
-    const ctx = mockContext();
-    const whiskey = giveItem(bt, EItemType.WHISKEY, ctx);
-
-    const handled = w.handleInteract(bt, whiskey, ctx);
-    expect(handled).toBe(true); // handled (but no transform)
-    expect(whiskey.type).toBe(EItemType.WHISKEY); // unchanged
   });
+});
 
-  it("pushes craft event on transform", () => {
-    const w = new Widget(WIDGET_ICE_WELL, 11, 1);
-    const bt = mockBartender();
-    const ctx = mockContext();
-    const whiskey = giveItem(bt, EItemType.WHISKEY, ctx);
+// ── Widget GARNISH_STATION ──────────────────────────────────
 
-    w.handleInteract(bt, whiskey, ctx);
-
-    expect(ctx.events).toHaveLength(1);
-    expect(ctx.events[0].type).toBe("item_crafted");
-    expect(ctx.events[0].data.itemType).toBe(EItemType.HIGHBALL);
+describe("Widget GARNISH_STATION", () => {
+  it("has stock capacity of 15", () => {
+    const w = new Widget(WIDGET_GARNISH_STATION, 13, 1);
+    expect(w.currentStock).toBe(15);
   });
 
   it("has 0 top slots", () => {
-    const w = new Widget(WIDGET_ICE_WELL, 11, 1);
+    const w = new Widget(WIDGET_GARNISH_STATION, 13, 1);
     expect(w.state.maxSlots).toBe(0);
+  });
+
+  it("has no transforms (variant appliance)", () => {
+    expect(WIDGET_GARNISH_STATION.transforms).toBeUndefined();
+  });
+
+  it("handleInteract returns false (variants via bartenderSelect)", () => {
+    const w = new Widget(WIDGET_GARNISH_STATION, 13, 1);
+    const bt = mockBartender();
+    const ctx = mockContext();
+    const shaken = giveItem(bt, EItemType.MARTINI_SHAKEN, ctx);
+
+    const handled = w.handleInteract(bt, shaken, ctx);
+    expect(handled).toBe(false);
   });
 });
 

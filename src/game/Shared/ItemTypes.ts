@@ -1,57 +1,72 @@
 export enum EItemType {
-  // Glass (from Glass Shelf)
   GLASS = "glass",
-  // Beer variants (from Draft System)
   PILSNER = "pilsner",
   LAGER = "lager",
   ALE = "ale",
   IPA = "ipa",
-  // Wine variants (from Wine Rack)
   MERLOT = "merlot",
   CHARDONNAY = "chardonnay",
   PINOT_NOIR = "pinot_noir",
   ROSE = "rose",
-  // Spirit variants (from Liquor Rail)
+  PROSECCO = "prosecco",
   WHISKEY = "whiskey",
   VODKA = "vodka",
   GIN = "gin",
   RUM = "rum",
-  // Mixed drinks
+  TEQUILA = "tequila",
   HIGHBALL = "highball",
-  // Other
+  GIN_TONIC = "gin_tonic",
+  RUM_COLA = "rum_cola",
+  MARTINI_SHAKEN = "martini_shaken",
+  OLD_FASHIONED_SHAKEN = "old_fashioned_shaken",
+  MARGARITA_SHAKEN = "margarita_shaken",
+  LONG_ISLAND_BASE = "long_island_base",
+  LONG_ISLAND_SHAKEN = "long_island_shaken",
+  SPRITZ_MIX = "spritz_mix",
+  SPRITZ = "spritz",
+  MARTINI = "martini",
+  OLD_FASHIONED = "old_fashioned",
+  MARGARITA = "margarita",
+  LONG_ISLAND = "long_island",
+  ESPRESSO_MARTINI = "espresso_martini",
   DIRTY_GLASS = "dirty_glass",
   CUT_OFF_CARD = "cut_off_card",
   TRASH_BAG = "trash_bag",
 }
 
-/** Set of all glass types that can be returned to the glass shelf */
-export const GLASS_TYPES = new Set<EItemType>([
-  EItemType.GLASS,
-]);
+export const GLASS_TYPES = new Set<EItemType>([EItemType.GLASS]);
 
-/** Shared display info for items — used by both player and guest views.
- *  Colors must have sufficient contrast for white text overlays. */
 export const ITEM_DISPLAY: Record<string, { label: string; color: number }> = {
-  // Glass
   glass: { label: "Glass", color: 0x708090 },
-  // Beer variants
   pilsner: { label: "Pilsner", color: 0x8b7320 },
   lager: { label: "Lager", color: 0x996b10 },
   ale: { label: "Ale", color: 0x9a6830 },
   ipa: { label: "IPA", color: 0xa05018 },
-  // Wine variants
   merlot: { label: "Merlot", color: 0x722f37 },
   chardonnay: { label: "Chard", color: 0x7a6a10 },
   pinot_noir: { label: "Pinot", color: 0x4a1a2e },
   rose: { label: "Rosé", color: 0xa04060 },
-  // Spirit variants
+  prosecco: { label: "Prosc", color: 0x9aa030 },
   whiskey: { label: "Whiskey", color: 0x8a5a18 },
   vodka: { label: "Vodka", color: 0x5060a0 },
   gin: { label: "Gin", color: 0x2a6a3a },
   rum: { label: "Rum", color: 0x8a5c08 },
-  // Mixed drinks
+  tequila: { label: "Tequila", color: 0xa08830 },
   highball: { label: "H-ball", color: 0x3570a8 },
-  // Other
+  gin_tonic: { label: "G&T", color: 0x40a070 },
+  rum_cola: { label: "R&Cola", color: 0x6a3020 },
+  martini_shaken: { label: "Shkn", color: 0x88a8c0 },
+  old_fashioned_shaken: { label: "Shkn", color: 0xa07830 },
+  margarita_shaken: { label: "Shkn", color: 0x90a840 },
+  long_island_base: { label: "LI Mix", color: 0x607050 },
+  long_island_shaken: { label: "Shkn", color: 0x607858 },
+  spritz_mix: { label: "SpMix", color: 0xc07030 },
+  spritz: { label: "Spritz", color: 0xd08040 },
+  martini: { label: "Martini", color: 0x90b0d0 },
+  old_fashioned: { label: "OldFsh", color: 0xb08020 },
+  margarita: { label: "Marg", color: 0xa0b840 },
+  long_island: { label: "LIIT", color: 0x708060 },
+  espresso_martini: { label: "EspMrt", color: 0x4a3020 },
   dirty_glass: { label: "Dirty", color: 0x666666 },
   cut_off_card: { label: "Cut Off", color: 0xcc3333 },
   trash_bag: { label: "Trash", color: 0x555555 },

@@ -3,7 +3,7 @@ import { getActiveLayout } from "../../Shared/LayoutPersistence";
 import { EApplianceType, SEAT_OFFSETS } from "../../Shared/ApplianceTypes";
 import { EItemType } from "../../Shared/ItemTypes";
 import { EDirection, ETileZone } from "../../Shared/TileTypes";
-import { RECIPES, getMenuDrinkKeys, APPLIANCE_VARIANTS, GRAB_VARIANTS } from "../../Shared/DrinkRecipes";
+import { RECIPES, getMenuDrinkKeys, APPLIANCE_VARIANTS, GRAB_VARIANTS, getMixMap } from "../../Shared/DrinkRecipes";
 import { EGuestStatus, EGuestTrait } from "../../Shared/GuestTypes";
 import { EUpgradeId, UPGRADE_CONFIGS, type IUpgradeStateData } from "../../Shared/UpgradeTypes";
 import GameSettings from "../../Shared/GameSettings";
@@ -25,7 +25,7 @@ import {
   WIDGET_BIN, WIDGET_CARD_HOLDER, WIDGET_GLASS_SHELF, WIDGET_SERVICE_BAR,
   WIDGET_COUNTER, WIDGET_HIGHTOP, WIDGET_TABLE, WIDGET_BAR_QUEUE,
   WIDGET_DRAFT_SYSTEM, WIDGET_WINE_RACK, WIDGET_LIQUOR_RAIL,
-  WIDGET_ICE_WELL, WIDGET_SINK,
+  WIDGET_ICE_WELL, WIDGET_SINK, WIDGET_SHAKER, WIDGET_GARNISH_STATION,
   type IWidgetConfig,
 } from "../../Shared/WidgetTypes";
 import type { Game } from "./Game";
@@ -45,6 +45,8 @@ const WIDGET_CONFIGS: Partial<Record<EApplianceType, IWidgetConfig>> = {
   [EApplianceType.LIQUOR_RAIL]: WIDGET_LIQUOR_RAIL,
   [EApplianceType.ICE_WELL]: WIDGET_ICE_WELL,
   [EApplianceType.SINK]: WIDGET_SINK,
+  [EApplianceType.SHAKER]: WIDGET_SHAKER,
+  [EApplianceType.GARNISH_STATION]: WIDGET_GARNISH_STATION,
 };
 
 export class Engine {
@@ -583,12 +585,21 @@ export class Engine {
       if (!variantConfig.requiredItems.includes(heldItem.type)) return;
       if (variantIndex < 0 || variantIndex >= variantConfig.variants.length) return;
 
-      const variant = variantConfig.variants[variantIndex];
-      heldItem.setType(variant.type);
+      // Determine output type: use mix map if available, otherwise direct variant
+      const mixMap = getMixMap(appliance.type);
+      let outputType: EItemType;
+      if (mixMap && mixMap[heldItem.type]) {
+        const result = mixMap[heldItem.type][variantIndex];
+        if (!result) return; // invalid combination
+        outputType = result;
+      } else {
+        outputType = variantConfig.variants[variantIndex].type;
+      }
+      heldItem.setType(outputType);
       bartender.setHeldItem(heldItem.id, heldItem.type);
       appliance.depleteStock();
       this._pushEvent(EEngineEventType.ITEM_CRAFTED, {
-        itemType: variant.type,
+        itemType: outputType,
         playerId: bartender.id,
       });
     } else {

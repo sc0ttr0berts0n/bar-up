@@ -13,6 +13,8 @@ const GameSettings = {
   playerMoveSpeed: 6, // tiles per second
   interactDuration: 0.3, // seconds for timed interactions
   washDuration: 1.0, // seconds to wash a dirty glass at the sink
+  shakeDuration: 1.2, // seconds to shake a cocktail
+  garnishDuration: 0.5, // seconds to add garnish
 
   // Guests
   guestMoveSpeed: 3, // tiles per second
