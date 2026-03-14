@@ -10,6 +10,7 @@ import { EGuestStatus, EGuestTier } from "../../Shared/GuestTypes";
 import { EDirection } from "../../Shared/TileTypes";
 import { EApplianceType } from "../../Shared/ApplianceTypes";
 import { EItemType } from "../../Shared/ItemTypes";
+import { ESpecialEvent } from "../../Shared/EventTypes";
 
 export class ServerPacketHandler {
   public static schemaBasePacket = z.object({
@@ -160,6 +161,7 @@ export class ServerPacketHandler {
       upgrades: z.object({
         levels: z.record(z.string(), z.number()),
       }),
+      specialEvent: z.nativeEnum(ESpecialEvent),
     }),
   });
 

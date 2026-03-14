@@ -577,6 +577,9 @@ class Game extends Singleton<Game>() {
       if (level > 0) compendium.trackUpgradeLevel(id, level);
     }
 
+    // Sync special event
+    store.specialEvent = data.specialEvent;
+
     // Auto-hide upgrade panel and compendium when leaving prep
     if (store.upgradePanel.visible && data.shiftPhase !== "prep") {
       store.upgradePanel.visible = false;
@@ -747,6 +750,12 @@ class Game extends Singleton<Game>() {
         return { message: `-$${data.amount} expenses`, color: "#ff6b6b" };
       case EEngineEventType.SHIFT_CHANGE:
         return { message: `${(data.phase as string).toUpperCase()} phase`, color: "#4ecdc4" };
+      case EEngineEventType.SPECIAL_EVENT_STARTED:
+        return { message: `${data.label}`, color: (data.color as string) ?? "#ffd93d" };
+      case EEngineEventType.HEALTH_INSPECTOR_FINE:
+        return { message: `-$${data.amount} Health Inspector fine!`, color: "#ff4444" };
+      case EEngineEventType.HEALTH_INSPECTOR_BONUS:
+        return { message: `+$${data.amount} Clean shift bonus!`, color: "#44cc44" };
       case EEngineEventType.SHIFT_SUMMARY:
         // Populate shift summary in store
         store.shiftSummary = {
@@ -778,7 +787,9 @@ class Game extends Singleton<Game>() {
       || type === EEngineEventType.BAR_FIGHT_STARTED
       || type === EEngineEventType.GUEST_SLIPPED
       || type === EEngineEventType.LAST_CALL
-      || type === EEngineEventType.SHIFT_CHANGE;
+      || type === EEngineEventType.SHIFT_CHANGE
+      || type === EEngineEventType.SPECIAL_EVENT_STARTED
+      || type === EEngineEventType.HEALTH_INSPECTOR_FINE;
   }
 
   public get playerSlots(): (IPlayerStateData | undefined)[] {

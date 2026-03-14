@@ -183,6 +183,30 @@ const GameSettings = {
   atmosphereLustBonus: 0.2, // per guest, multiplied by their lust
   atmosphereHappyPartyBonus: 2, // per happy party (avg happiness > 60)
   atmosphereHappinessDecayMod: 0.5, // at atmosphere=0 decay is 1.5x; at atmosphere=100 decay is 0.5x
+
+  // Special Events
+  eventNoEventChance: 0.4, // 40% chance of no event
+  // Happy Hour
+  eventHappyHourPriceMultiplier: 0.5, // drink prices halved
+  eventHappyHourSpawnMultiplier: 1.5, // guest spawn rate 1.5x
+  eventHappyHourHappinessBonus: 10, // +10 starting happiness
+  // VIP Night
+  eventVIPGuaranteedCount: 3, // 3 HIGH-tier guests guaranteed
+  eventVIPTipMultiplier: 3.0, // each VIP tips 3x
+  // Trivia Night
+  eventTriviaExtraRounds: 1, // guests stay 1 extra round
+  eventTriviaHappinessPerRound: 5, // +5 happiness per round served
+  // Health Inspector
+  eventHealthInspectorMessFine: 50, // -$50 per mess
+  eventHealthInspectorCleanBonus: 200, // +$200 if shift ends clean
+  // Live Music
+  eventLiveMusicHappinessBonus: 15, // all guests +15 happiness
+  eventLiveMusicLustTipBonus: 0.15, // lustful guests tip extra (15% bonus)
+  eventLiveMusicWrathPatienceMultiplier: 1.5, // wrathful guests lose patience faster
+  // Sports Night
+  eventSportsNightForcedPartySize: 4, // groups of 4
+  eventSportsNightGluttonyMean: 0.75, // high gluttony crowd
+  eventSportsNightExtraRounds: 1, // more rounds ordered
 } as const;
 
 export default GameSettings;

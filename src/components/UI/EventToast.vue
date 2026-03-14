@@ -1,5 +1,12 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { store } from "../../store/global";
+import { ESpecialEvent, SPECIAL_EVENT_CONFIGS } from "../../game/Shared/EventTypes";
+
+const showEventBanner = computed(() =>
+  store.shiftPhase === "prep" && store.specialEvent !== ESpecialEvent.NONE
+);
+const eventConfig = computed(() => SPECIAL_EVENT_CONFIGS[store.specialEvent]);
 </script>
 
 <template>
@@ -15,6 +22,15 @@ import { store } from "../../store/global";
       </div>
     </TransitionGroup>
   </div>
+
+  <!-- Prep-phase event announcement banner -->
+  <Transition name="banner">
+    <div v-if="showEventBanner" class="event-banner" :style="{ borderColor: eventConfig.color }">
+      <div class="event-banner-label" :style="{ color: eventConfig.color }">NEXT SHIFT</div>
+      <div class="event-banner-title" :style="{ color: eventConfig.color }">{{ eventConfig.label }}</div>
+      <div class="event-banner-desc">{{ eventConfig.description }}</div>
+    </div>
+  </Transition>
 
   <!-- Center-screen flash for critical events -->
   <Transition name="flash">
@@ -67,6 +83,59 @@ import { store } from "../../store/global";
 .toast-leave-to {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+/* Prep-phase event banner */
+.event-banner {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a2eee;
+  border: 2px solid #ffd93d;
+  border-radius: 8px;
+  padding: 12px 24px;
+  text-align: center;
+  z-index: 65;
+  pointer-events: none;
+  min-width: 280px;
+}
+.event-banner-label {
+  font-family: monospace;
+  font-size: 0.7rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+.event-banner-title {
+  font-family: monospace;
+  font-size: 1.4rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.event-banner-desc {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: #ccc;
+  margin-top: 4px;
+}
+
+.banner-enter-active {
+  transition: all 0.3s ease-out;
+}
+.banner-leave-active {
+  transition: all 0.3s ease-in;
+}
+.banner-enter-from {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px);
+}
+.banner-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px);
 }
 
 /* Center-screen flash */

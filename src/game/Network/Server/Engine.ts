@@ -4,12 +4,13 @@ import { EApplianceType, SEAT_OFFSETS } from "../../Shared/ApplianceTypes";
 import { EItemType } from "../../Shared/ItemTypes";
 import { EDirection, ETileZone } from "../../Shared/TileTypes";
 import { RECIPES, getMenuDrinkKeys, APPLIANCE_VARIANTS, GRAB_VARIANTS } from "../../Shared/DrinkRecipes";
-import { EGuestStatus, EGuestTrait } from "../../Shared/GuestTypes";
+import { EGuestStatus, EGuestTrait, EGuestTier } from "../../Shared/GuestTypes";
 import { EUpgradeId, UPGRADE_CONFIGS, type IUpgradeStateData } from "../../Shared/UpgradeTypes";
 import GameSettings from "../../Shared/GameSettings";
 import { Random } from "../../Utils/Random";
 import type { Vec2 } from "../../../types/Vec2";
 import { type IEngineEvent, EEngineEventType } from "../Communicator/PacketTypes";
+import { ESpecialEvent, SPECIAL_EVENT_CONFIGS } from "../../Shared/EventTypes";
 import { TileGrid } from "./TileGrid";
 import { Pathfinding } from "./Pathfinding";
 import { Bartender } from "./GameObjects/Bartender";
@@ -74,6 +75,8 @@ export class Engine {
   private _pendingWash: Map<number, { itemId: string; callback?: () => void }> = new Map();
   private _editModeManager!: EditModeManager;
   private _upgradeLevels: Map<EUpgradeId, number> = new Map();
+  private _healthInspectorMessCount: number = 0; // track messes during health inspector event
+  private _vipSpawnedCount: number = 0; // track guaranteed VIP spawns
   private _widgetContext: IWidgetContext = {
     createItem: (type: EItemType) => {
       const item = new Item(type);
@@ -166,6 +169,17 @@ export class Engine {
       this._guestSpawner.enabled = phase === "service";
       if (phase === "service") {
         this._shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, tipsEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0, restockCost: 0, breakageCost: 0, wasteCost: 0, totalExpenses: 0 };
+        this._healthInspectorMessCount = 0;
+        this._vipSpawnedCount = 0;
+        // Announce event at start of service if one is active
+        if (this._shiftManager.currentEvent !== ESpecialEvent.NONE) {
+          const config = SPECIAL_EVENT_CONFIGS[this._shiftManager.currentEvent];
+          this._pushEvent(EEngineEventType.SPECIAL_EVENT_STARTED, {
+            event: this._shiftManager.currentEvent,
+            label: config.label,
+            description: config.description,
+          });
+        }
       }
       if (phase === "closing") {
         // Closing transition — force guest state changes
@@ -239,6 +253,14 @@ export class Engine {
   }
   get shiftStats() {
     return this._shiftStats;
+  }
+  get currentEvent(): ESpecialEvent {
+    return this._shiftManager.currentEvent;
+  }
+  /** Check if a specific special event is active during service/closing phases. */
+  isEventActive(event: ESpecialEvent): boolean {
+    return this._shiftManager.currentEvent === event &&
+      (this._shiftManager.phase === "service" || this._shiftManager.phase === "closing");
   }
   get menuConfig(): { drinkKey: string; enabled: boolean; price: number }[] {
     return [...this._menuConfig.entries()].map(([drinkKey, cfg]) => ({
@@ -748,7 +770,7 @@ export class Engine {
         // Overserve detection: serving a drink to a very drunk guest
         if (guest.drunkenness >= GameSettings.overserveDrunkennessThreshold) {
           guest.setOverserved();
-          this._messes.add(`${guest.gridX},${guest.gridY}`);
+          this._addMess(guest.gridX, guest.gridY);
           this._policeAttention += 1.0;
           this._shiftStats.overserves++;
           this._reputation += GameSettings.overserveReputationPenalty;
@@ -785,9 +807,18 @@ export class Engine {
           if (wrathBonus > 0) guest.adjustPatience(wrathBonus);
         }
 
+        // Trivia Night: +happiness per round served
+        if (this.isEventActive(ESpecialEvent.TRIVIA_NIGHT)) {
+          guest.adjustHappiness(GameSettings.eventTriviaHappinessPerRound);
+        }
+
         // Earn money: base price + tip
         const menuEntry = this._menuConfig.get(guest.order.drinkKey);
-        const basePrice = menuEntry?.price ?? recipe.menuPrice;
+        let basePrice = menuEntry?.price ?? recipe.menuPrice;
+        // Happy Hour: drink prices halved
+        if (this.isEventActive(ESpecialEvent.HAPPY_HOUR)) {
+          basePrice = Math.max(1, Math.round(basePrice * GameSettings.eventHappyHourPriceMultiplier));
+        }
 
         // Calculate tip: base % scaled by happiness, with speed and preferred drink bonuses
         const happinessFactor = (guest.happiness / GameSettings.happinessMax) * GameSettings.tipHappinessScale;
@@ -812,6 +843,16 @@ export class Engine {
         // Greed-based tip multiplier: tipMult = 1.8 - 1.3 * greed
         // Generous (greed=0) = 1.8x, greedy (greed=1) = 0.5x
         tip = Math.round(tip * (1.8 - 1.3 * guest.personality.greed));
+
+        // VIP Night: HIGH-tier guests tip 3x
+        if (this.isEventActive(ESpecialEvent.VIP_NIGHT) && guest.tier === EGuestTier.HIGH) {
+          tip = Math.round(tip * GameSettings.eventVIPTipMultiplier);
+        }
+
+        // Live Music: lustful guests tip extra
+        if (this.isEventActive(ESpecialEvent.LIVE_MUSIC)) {
+          tip += Math.round(basePrice * guest.personality.lust * GameSettings.eventLiveMusicLustTipBonus);
+        }
 
         const totalEarnings = basePrice + tip;
         this._money += totalEarnings;
@@ -1164,7 +1205,29 @@ export class Engine {
 
   addGuest(guest: Guest) {
     this._guests.set(guest.id, guest);
+    // Apply event-based starting bonuses
+    if (this.isEventActive(ESpecialEvent.HAPPY_HOUR)) {
+      guest.adjustHappiness(GameSettings.eventHappyHourHappinessBonus);
+    }
+    if (this.isEventActive(ESpecialEvent.LIVE_MUSIC)) {
+      guest.adjustHappiness(GameSettings.eventLiveMusicHappinessBonus);
+    }
+    // Trivia Night: extra rounds
+    if (this.isEventActive(ESpecialEvent.TRIVIA_NIGHT)) {
+      guest.setRounds(guest.roundsRemaining + GameSettings.eventTriviaExtraRounds);
+    }
     this._pushEvent(EEngineEventType.GUEST_SEATED, { guestId: guest.id });
+  }
+
+  /** Add a mess at position, with Health Inspector fine if active. */
+  private _addMess(x: number, y: number) {
+    this._messes.add(`${x},${y}`);
+    if (this.isEventActive(ESpecialEvent.HEALTH_INSPECTOR)) {
+      this._healthInspectorMessCount++;
+      const fine = GameSettings.eventHealthInspectorMessFine;
+      this._money -= fine;
+      this._pushEvent(EEngineEventType.HEALTH_INSPECTOR_FINE, { amount: fine });
+    }
   }
 
   private _pushEvent(type: EEngineEventType, data: Record<string, unknown>) {
@@ -1382,6 +1445,16 @@ export class Engine {
       }
     }
 
+    // Live Music: wrathful guests lose patience faster (applied per-tick as extra decay)
+    if (this.isEventActive(ESpecialEvent.LIVE_MUSIC)) {
+      for (const guest of this._guests.values()) {
+        if (guest.personality.wrath > 0.5) {
+          const extraDecay = guest.personality.wrath * (GameSettings.eventLiveMusicWrathPatienceMultiplier - 1) * 0.25 * dt;
+          guest.adjustPatience(-extraDecay);
+        }
+      }
+    }
+
     // Detect newly started fights (AOE happiness drop + events)
     for (const guest of this._guests.values()) {
       if (guest.status === EGuestStatus.FIGHTING && prevStatuses.get(guest.id) !== EGuestStatus.FIGHTING) {
@@ -1453,7 +1526,7 @@ export class Engine {
       // Diligent guests (low sloth) barely make messes, slothful guests are messy
       const messChance = guest.personality.sloth * 0.3 + guest.drunkenness * GameSettings.messChanceDrunkBonus;
       if (Random.range(0, 1) < messChance) {
-        this._messes.add(`${guest.gridX},${guest.gridY}`);
+        this._addMess(guest.gridX, guest.gridY);
       }
     }
 
@@ -1797,6 +1870,13 @@ export class Engine {
 
     if (totalExpenses > 0) {
       this._pushEvent(EEngineEventType.EXPENSE_DEDUCTED, { amount: totalExpenses });
+    }
+
+    // Health Inspector: bonus for clean shift (no messes occurred)
+    if (this._shiftManager.currentEvent === ESpecialEvent.HEALTH_INSPECTOR && this._healthInspectorMessCount === 0) {
+      const bonus = GameSettings.eventHealthInspectorCleanBonus;
+      this._money += bonus;
+      this._pushEvent(EEngineEventType.HEALTH_INSPECTOR_BONUS, { amount: bonus });
     }
   }
 }

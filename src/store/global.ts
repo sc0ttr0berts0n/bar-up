@@ -2,6 +2,7 @@ import { reactive } from "vue";
 import type { IGuestStateData } from "../game/Shared/GuestTypes";
 import type { IApplianceStateData, EApplianceType } from "../game/Shared/ApplianceTypes";
 import type { IUpgradeStateData } from "../game/Shared/UpgradeTypes";
+import { ESpecialEvent } from "../game/Shared/EventTypes";
 
 export interface IToast {
   id: number;
@@ -93,4 +94,5 @@ export const store = reactive({
   compendium: {
     visible: false,
   },
+  specialEvent: ESpecialEvent.NONE as ESpecialEvent,
 });

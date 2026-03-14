@@ -3,6 +3,7 @@ import type { IGuestStateData } from "../../Shared/GuestTypes";
 import type { IApplianceStateData, EApplianceType } from "../../Shared/ApplianceTypes";
 import type { IItemStateData } from "../../Shared/ItemTypes";
 import type { IUpgradeStateData } from "../../Shared/UpgradeTypes";
+import type { ESpecialEvent } from "../../Shared/EventTypes";
 import type { EDirection } from "../../Shared/TileTypes";
 import type { UUID } from "./Communicator";
 
@@ -76,6 +77,9 @@ export enum EEngineEventType {
   LAST_CALL = 19,
   TIP_EARNED = 20,
   EXPENSE_DEDUCTED = 21,
+  SPECIAL_EVENT_STARTED = 22,
+  HEALTH_INSPECTOR_FINE = 23,
+  HEALTH_INSPECTOR_BONUS = 24,
 }
 
 export interface INetworkPacketServerUpdate extends INetworkPacket {
@@ -98,6 +102,7 @@ export interface INetworkPacketServerUpdate extends INetworkPacket {
     atmosphere: number;
     editMode: IEditModeStateData | null;
     upgrades: IUpgradeStateData;
+    specialEvent: ESpecialEvent;
   };
 }
 

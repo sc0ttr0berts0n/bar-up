@@ -4,6 +4,7 @@ import { store } from "../../store/global";
 import GameSettings from "../../game/Shared/GameSettings";
 import Communicator from "../../game/Network/Communicator/Communicator";
 import { PACKET_TYPE } from "../../game/Network/Communicator/PacketTypes";
+import { ESpecialEvent, SPECIAL_EVENT_CONFIGS } from "../../game/Shared/EventTypes";
 
 function skipPrepPhase() {
   Communicator.sendToServer({
@@ -90,6 +91,9 @@ const heldItemName = computed(() => {
   return ITEM_NAMES[store.heldItemType] ?? store.heldItemType;
 });
 
+const hasEvent = computed(() => store.specialEvent !== ESpecialEvent.NONE);
+const eventConfig = computed(() => SPECIAL_EVENT_CONFIGS[store.specialEvent]);
+
 const policeAttention = computed(() => store.policeAttention);
 const showPolice = computed(() => policeAttention.value > 0);
 const policeSegments = computed(() => {
@@ -151,6 +155,9 @@ const showAtmosphere = computed(() => store.shiftPhase === "service" || store.sh
         </div>
       </div>
     </template>
+    <span v-if="hasEvent" class="hud-event-badge" :style="{ color: eventConfig.color, borderColor: eventConfig.color }">
+      {{ eventConfig.label }}
+    </span>
     <span v-if="showLastCall" class="hud-last-call">LAST CALL</span>
     <span v-if="store.isOvertime" class="hud-overtime-pulse">OVERTIME</span>
     <button v-if="store.shiftPhase === 'prep' && !store.editMode.active" class="hud-compendium-btn" @click="toggleCompendium">
@@ -359,6 +366,15 @@ const showAtmosphere = computed(() => store.shiftPhase === "service" || store.sh
   height: 100%;
   border-radius: 4px;
   transition: width 0.5s ease, background 0.5s ease;
+}
+.hud-event-badge {
+  font-size: 0.8rem;
+  font-weight: bold;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 .hud-last-call {
   font-size: 1rem;
