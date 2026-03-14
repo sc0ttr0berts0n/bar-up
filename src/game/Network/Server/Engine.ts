@@ -733,6 +733,9 @@ export class Engine {
         guest.adjustPatience(GameSettings.patienceServeBonus);
         guest.adjustHappiness(GameSettings.happinessServeBonus);
 
+        // Fill guest's first empty consumption slot with the drink
+        guest.fillSlot(guest.getFirstEmptySlotIndex(), heldItem.type, false);
+
         // Bonus happiness if drink matches preference
         if (guest.preferredDrink === guest.order.drinkKey) {
           guest.adjustHappiness(GameSettings.preferredDrinkBonus);

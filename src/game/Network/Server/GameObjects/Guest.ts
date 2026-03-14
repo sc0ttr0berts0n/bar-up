@@ -1,4 +1,4 @@
-import { EGuestStatus, EGuestTier, EGuestTrait, type IGuestOrder, type IGuestStateData, type IPersonality, deriveTraits } from "../../../Shared/GuestTypes";
+import { EGuestStatus, EGuestTier, EGuestTrait, type IGuestOrder, type IGuestSlot, type IGuestStateData, type IPersonality, deriveTraits, emptySlot } from "../../../Shared/GuestTypes";
 import { getMenuDrinkKeys } from "../../../Shared/DrinkRecipes";
 import GameSettings from "../../../Shared/GameSettings";
 import { Random } from "../../../Utils/Random";
@@ -59,6 +59,14 @@ export class Guest {
   private _tier: EGuestTier = EGuestTier.NORMAL;
   private _isTileBlocked: ((x: number, y: number) => boolean) | null = null;
   private _isWalkableTile: ((x: number, y: number) => boolean) | null = null;
+  /** Dual consumption slots: index 0 = primary (drink), index 1 = secondary (food/extra drink) */
+  private _slots: [IGuestSlot, IGuestSlot] = [emptySlot(), emptySlot()];
+  /** Independent drink durations per slot */
+  private _slotDurations: [number, number] = [0, 0];
+  /** Independent sip counters per slot */
+  private _slotSipsTaken: [number, number] = [0, 0];
+  /** Track which slots produced dirty glasses this tick */
+  private _slotProducedDirtyGlass: [boolean, boolean] = [false, false];
 
   constructor(partyId: string, spawnX: number, spawnY: number) {
     this._id = Random.uuid();
@@ -187,6 +195,65 @@ export class Guest {
     this._isChugging = val;
   }
 
+  // ── Dual Slot API ─────────────────────────────────────────────
+
+  get slots(): readonly [IGuestSlot, IGuestSlot] {
+    return this._slots;
+  }
+
+  /** Get the first empty slot index (0 or 1), or -1 if both are occupied */
+  getFirstEmptySlotIndex(): number {
+    if (this._slots[0].itemType === null) return 0;
+    if (this._slots[1].itemType === null) return 1;
+    return -1;
+  }
+
+  /** Fill a slot with an item. Returns true if successful. */
+  fillSlot(slotIndex: number, itemType: string, isFood: boolean = false): boolean {
+    if (slotIndex < 0 || slotIndex > 1) return false;
+    if (this._slots[slotIndex].itemType !== null) return false;
+    this._slots[slotIndex] = { itemType, progress: 0, isFood };
+    this._slotDurations[slotIndex] = Random.range(
+      GameSettings.drinkingDuration[0],
+      GameSettings.drinkingDuration[1],
+    );
+    this._slotSipsTaken[slotIndex] = 0;
+    return true;
+  }
+
+  /** Clear a slot (item consumed). */
+  clearSlot(slotIndex: number) {
+    if (slotIndex < 0 || slotIndex > 1) return;
+    this._slots[slotIndex] = emptySlot();
+    this._slotDurations[slotIndex] = 0;
+    this._slotSipsTaken[slotIndex] = 0;
+    this._slotProducedDirtyGlass[slotIndex] = false;
+  }
+
+  /** Check if any slot has a dirty-glass flag pending */
+  get slotProducedDirtyGlass(): [boolean, boolean] {
+    return [...this._slotProducedDirtyGlass] as [boolean, boolean];
+  }
+
+  clearSlotDirtyGlassFlag(slotIndex: number) {
+    if (slotIndex >= 0 && slotIndex <= 1) {
+      this._slotProducedDirtyGlass[slotIndex] = false;
+    }
+  }
+
+  /** Are both slots empty? */
+  get allSlotsEmpty(): boolean {
+    return this._slots[0].itemType === null && this._slots[1].itemType === null;
+  }
+
+  /** Are all occupied slots finished consuming? */
+  get allSlotsFinished(): boolean {
+    for (let i = 0; i < 2; i++) {
+      if (this._slots[i].itemType !== null && this._slots[i].progress < 1) return false;
+    }
+    return true;
+  }
+
   get personality() {
     return this._personality;
   }
@@ -254,6 +321,32 @@ export class Guest {
     return false;
   }
 
+  /** Shared drink-finished logic for both slot-based and legacy paths */
+  private _drinkFinished() {
+    this._order = null;
+    this._isChugging = false;
+
+    // Last call post-drink behavior
+    if (this._lastCallDecision === "ordering") {
+      this._roundsRemaining = 1;
+      this._isReorder = true;
+      this.setStatus(EGuestStatus.DECIDING);
+      this._lastCallDecision = "finishing";
+    } else if (this._lastCallDecision === "finishing") {
+      this._roundsRemaining = 0;
+      this.setStatus(EGuestStatus.LEAVING);
+    } else {
+      // Normal behavior
+      this.decrementRounds();
+      if (this._roundsRemaining <= 0) {
+        this.setStatus(EGuestStatus.LEAVING);
+      } else {
+        this._isReorder = true;
+        this.setStatus(EGuestStatus.DECIDING);
+      }
+    }
+  }
+
   setPath(path: Vec2[]) {
     this._path = path;
     this._pathIndex = 0;
@@ -280,6 +373,15 @@ export class Guest {
         GameSettings.drinkingDuration[0],
         GameSettings.drinkingDuration[1],
       );
+      // Initialize slot durations for any filled slots that don't have a duration yet
+      for (let i = 0; i < 2; i++) {
+        if (this._slots[i].itemType !== null && this._slotDurations[i] <= 0) {
+          this._slotDurations[i] = Random.range(
+            GameSettings.drinkingDuration[0],
+            GameSettings.drinkingDuration[1],
+          );
+        }
+      }
     }
     if (status === EGuestStatus.LEAVING) {
       this._needsLeavePath = true;
@@ -473,7 +575,6 @@ export class Guest {
         if (this._isChugging) {
           this._statusTimer += dt * (GameSettings.lastCallChugSpeedMultiplier - 1);
         }
-        this._drinkProgress = Math.min(1, this._statusTimer / this._drinkDuration);
 
         // Chat cooldown tick
         if (!this._chatAvailable && this._chatCooldown > 0) {
@@ -483,47 +584,84 @@ export class Guest {
           }
         }
 
-        // Discrete sips — check if it's time for the next sip
-        const sipInterval = 1.0 / GameSettings.sipsPerDrink;
-        const nextSipAt = (this._sipsTaken + 1) * sipInterval;
-        if (this._drinkProgress >= nextSipAt && this._sipsTaken < GameSettings.sipsPerDrink) {
-          this._sipsTaken++;
-          let sipAmount: number = GameSettings.sipDrunkenness;
-          if (this._isDesignatedDriver) {
-            sipAmount = 0; // DD never gets drunk
-          } else {
-            // Gluttony drives tolerance: drunkRate = 1.3 - 0.6 * gluttony
-            // Low gluttony (temperate) = 1.3x (lightweight), High gluttony = 0.7x (lush/tolerant)
-            sipAmount *= 1.3 - 0.6 * this._personality.gluttony;
-          }
-          this._drunkenness += sipAmount;
-        }
+        // Determine if we use slot-based or legacy drink progress
+        const useLegacy = this.allSlotsEmpty;
 
-        if (this._drinkProgress >= 1) {
-          this._ordersCompleted++;
-          this._producedDirtyGlass = true;
-          this._sipsTaken = 0; // reset for next drink
-          this._order = null; // clear order now that drink is done
-          this._isChugging = false;
+        if (!useLegacy) {
+          // ── Slot-based consumption ──
+          const effectiveDt = this._isChugging
+            ? dt * GameSettings.lastCallChugSpeedMultiplier
+            : dt;
+          for (let si = 0; si < 2; si++) {
+            const slot = this._slots[si];
+            if (slot.itemType === null || slot.progress >= 1) continue;
 
-          // Last call post-drink behavior
-          if (this._lastCallDecision === "ordering") {
-            this._roundsRemaining = 1;
-            this._isReorder = true;
-            this.setStatus(EGuestStatus.DECIDING);
-            this._lastCallDecision = "finishing"; // after this next drink, leave
-          } else if (this._lastCallDecision === "finishing") {
-            this._roundsRemaining = 0;
-            this.setStatus(EGuestStatus.LEAVING);
-          } else {
-            // Normal behavior
-            this.decrementRounds();
-            if (this._roundsRemaining <= 0) {
-              this.setStatus(EGuestStatus.LEAVING);
-            } else {
-              this._isReorder = true;
-              this.setStatus(EGuestStatus.DECIDING);
+            const duration = this._slotDurations[si];
+            if (duration <= 0) continue;
+
+            slot.progress = Math.min(1, slot.progress + effectiveDt / duration);
+
+            // Discrete sips for drink slots (not food)
+            if (!slot.isFood) {
+              const sipInterval = 1.0 / GameSettings.sipsPerDrink;
+              const nextSipAt = (this._slotSipsTaken[si] + 1) * sipInterval;
+              if (slot.progress >= nextSipAt && this._slotSipsTaken[si] < GameSettings.sipsPerDrink) {
+                this._slotSipsTaken[si]++;
+                let sipAmount: number = GameSettings.sipDrunkenness;
+                if (this._isDesignatedDriver) {
+                  sipAmount = 0;
+                } else {
+                  sipAmount *= 1.3 - 0.6 * this._personality.gluttony;
+                }
+                this._drunkenness += sipAmount;
+              }
             }
+
+            // Slot finished consuming
+            if (slot.progress >= 1) {
+              if (!slot.isFood) {
+                this._slotProducedDirtyGlass[si] = true;
+                this._producedDirtyGlass = true;
+              }
+              this._ordersCompleted++;
+            }
+          }
+
+          // Legacy drinkProgress: mirrors slot 0
+          this._drinkProgress = this._slots[0].itemType !== null
+            ? this._slots[0].progress
+            : (this._slots[1].itemType !== null ? this._slots[1].progress : 0);
+          this._sipsTaken = this._slotSipsTaken[0] || this._slotSipsTaken[1];
+
+          // Check if all occupied slots are finished
+          if (this.allSlotsFinished) {
+            for (let si = 0; si < 2; si++) {
+              if (this._slots[si].itemType !== null) this.clearSlot(si);
+            }
+            this._drinkFinished();
+          }
+        } else {
+          // ── Legacy single-drink path (backward compat for tests / old code paths) ──
+          this._drinkProgress = Math.min(1, this._statusTimer / this._drinkDuration);
+
+          const sipInterval = 1.0 / GameSettings.sipsPerDrink;
+          const nextSipAt = (this._sipsTaken + 1) * sipInterval;
+          if (this._drinkProgress >= nextSipAt && this._sipsTaken < GameSettings.sipsPerDrink) {
+            this._sipsTaken++;
+            let sipAmount: number = GameSettings.sipDrunkenness;
+            if (this._isDesignatedDriver) {
+              sipAmount = 0;
+            } else {
+              sipAmount *= 1.3 - 0.6 * this._personality.gluttony;
+            }
+            this._drunkenness += sipAmount;
+          }
+
+          if (this._drinkProgress >= 1) {
+            this._ordersCompleted++;
+            this._producedDirtyGlass = true;
+            this._sipsTaken = 0;
+            this._drinkFinished();
           }
         }
         break;
@@ -608,6 +746,10 @@ export class Guest {
       tier: this._tier,
       personality: { ...this._personality },
       isDesignatedDriver: this._isDesignatedDriver,
+      slots: [
+        { ...this._slots[0] },
+        { ...this._slots[1] },
+      ],
     };
   }
 }

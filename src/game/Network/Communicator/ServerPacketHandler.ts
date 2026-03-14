@@ -81,6 +81,10 @@ export class ServerPacketHandler {
       lust: z.number(),
     }),
     isDesignatedDriver: z.boolean(),
+    slots: z.tuple([
+      z.object({ itemType: z.union([z.string(), z.null()]), progress: z.number(), isFood: z.boolean() }),
+      z.object({ itemType: z.union([z.string(), z.null()]), progress: z.number(), isFood: z.boolean() }),
+    ]),
   });
 
   private static _applianceSchema = z.object({

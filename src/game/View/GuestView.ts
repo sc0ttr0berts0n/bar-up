@@ -288,43 +288,62 @@ export class GuestView extends Container {
       .rect(-barWidth / 2, 0, barWidth * happinessRatio, barHeight)
       .fill(happinessColor);
 
-    // Drink progress bar (while drinking, color-coded by drink)
-    if (state.status === EGuestStatus.DRINKING && state.drinkProgress > 0) {
-      const drinkBarColor = ITEM_DISPLAY[state.order?.drinkKey ?? ""]?.color ?? 0x4ecdc4;
+    // Drink progress bars — one per active slot (color-coded by slot item type)
+    const hasActiveSlot = state.status === EGuestStatus.DRINKING &&
+      state.slots.some(s => s.itemType !== null && s.progress > 0);
+    if (hasActiveSlot) {
       this._drinkProgressBar.visible = true;
       this._drinkProgressBar.clear();
-      this._drinkProgressBar
-        .rect(-barWidth / 2, 0, barWidth, 3)
-        .fill(0x333333);
-      this._drinkProgressBar
-        .rect(-barWidth / 2, 0, barWidth * state.drinkProgress, 3)
-        .fill(drinkBarColor);
+      let barYOffset = 0;
+      for (let si = 0; si < 2; si++) {
+        const slot = state.slots[si];
+        if (slot.itemType === null || slot.progress <= 0) continue;
+        const slotColor = ITEM_DISPLAY[slot.itemType]?.color ?? 0x4ecdc4;
+        this._drinkProgressBar
+          .rect(-barWidth / 2, barYOffset, barWidth, 3)
+          .fill(0x333333);
+        this._drinkProgressBar
+          .rect(-barWidth / 2, barYOffset, barWidth * slot.progress, 3)
+          .fill(slotColor);
+        barYOffset += 5; // stack second bar below first
+      }
     } else {
       this._drinkProgressBar.visible = false;
     }
 
-    // Drink glass visual — sits on the bar/table tile (appliance position)
-    if (state.status === EGuestStatus.DRINKING && state.drinkProgress > 0) {
-      const drinkColor = ITEM_DISPLAY[state.order?.drinkKey ?? ""]?.color ?? 0x4ecdc4;
+    // Drink glass visuals — one per active slot, offset side-by-side on the appliance tile
+    if (hasActiveSlot) {
+      this._drinkGlass.clear();
       const gw = 8;
       const gh = 14;
-      // Offset from guest position to the seat appliance center
       const offsetX = (state.seatApplianceGridX - state.gridX) * tileSize;
       const offsetY = (state.seatApplianceGridY - state.gridY) * tileSize;
-      const gx = offsetX - gw / 2;
-      const gy = offsetY - gh / 2;
-      const fillRatio = 1 - state.drinkProgress;
+      // Count active slots to decide spacing
+      const activeSlots = state.slots.filter(s => s.itemType !== null && s.progress > 0);
+      const spacing = activeSlots.length > 1 ? gw + 2 : 0;
+      let slotDrawIndex = 0;
+      for (let si = 0; si < 2; si++) {
+        const slot = state.slots[si];
+        if (slot.itemType === null || slot.progress <= 0) continue;
+        const drinkColor = ITEM_DISPLAY[slot.itemType]?.color ?? 0x4ecdc4;
+        const xShift = activeSlots.length > 1
+          ? (slotDrawIndex - 0.5) * spacing
+          : 0;
+        const gx = offsetX + xShift - gw / 2;
+        const gy = offsetY - gh / 2;
+        const fillRatio = 1 - slot.progress;
 
-      this._drinkGlass.clear();
-      // Glass outline
-      this._drinkGlass.roundRect(gx, gy, gw, gh, 2).fill(0x222222);
-      // Fill from bottom
-      const fillH = Math.max(0, (gh - 2) * fillRatio);
-      if (fillH > 0) {
-        this._drinkGlass.rect(gx + 1, gy + gh - 1 - fillH, gw - 2, fillH).fill(drinkColor);
+        // Glass outline
+        this._drinkGlass.roundRect(gx, gy, gw, gh, 2).fill(0x222222);
+        // Fill from bottom
+        const fillH = Math.max(0, (gh - 2) * fillRatio);
+        if (fillH > 0) {
+          this._drinkGlass.rect(gx + 1, gy + gh - 1 - fillH, gw - 2, fillH).fill(drinkColor);
+        }
+        // Glass rim highlight
+        this._drinkGlass.rect(gx, gy, gw, 1).fill(0x666666);
+        slotDrawIndex++;
       }
-      // Glass rim highlight
-      this._drinkGlass.rect(gx, gy, gw, 1).fill(0x666666);
       this._drinkGlass.visible = true;
     } else {
       this._drinkGlass.visible = false;

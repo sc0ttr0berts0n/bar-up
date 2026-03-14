@@ -107,6 +107,21 @@ export interface IGuestOrder {
   drinkKey: string;
 }
 
+/** A single consumption slot — guests have 2 of these (drink + food, or two drinks, etc.) */
+export interface IGuestSlot {
+  /** Item type key occupying this slot (e.g. "pilsner", "burger"), or null if empty */
+  itemType: string | null;
+  /** Consumption progress 0..1, resets when slot is cleared */
+  progress: number;
+  /** Whether this slot contains food (false = drink or empty). Future use. */
+  isFood: boolean;
+}
+
+/** Helper to create an empty guest slot */
+export function emptySlot(): IGuestSlot {
+  return { itemType: null, progress: 0, isFood: false };
+}
+
 export interface IGuestStateData {
   id: string;
   partyId: string;
@@ -125,6 +140,7 @@ export interface IGuestStateData {
   seatApplianceGridX: number;
   seatApplianceGridY: number;
   seatIndex: number;
+  /** @deprecated Use slots[0].progress instead — kept for backward compatibility */
   drinkProgress: number;
   statusTimer: number;
   drunkenness: number;
@@ -144,4 +160,6 @@ export interface IGuestStateData {
   tier: EGuestTier;
   personality: IPersonality;
   isDesignatedDriver: boolean;
+  /** Dual consumption slots — index 0 is primary (drink), index 1 is secondary (food/extra drink) */
+  slots: [IGuestSlot, IGuestSlot];
 }
