@@ -31,6 +31,7 @@ import { BartenderView } from "./Player/BartenderView";
 import { GuestView } from "./GuestView";
 import { store } from "../../store/global";
 import { UPGRADE_CONFIGS } from "../Shared/UpgradeTypes";
+import compendium from "../Compendium";
 
 type HostOrJoinResolver =
   | (({ choice, peerID }: { choice: EHost; peerID?: UUID }) => void)
@@ -532,6 +533,10 @@ class Game extends Singleton<Game>() {
     store.atmosphere = data.atmosphere;
     store.menuConfig = data.menuConfig;
     store.appliances = data.appliances;
+    // Track appliances in compendium
+    for (const a of data.appliances) {
+      compendium.trackAppliancePlaced(a.type);
+    }
     store.shiftPhase = data.shiftPhase as "prep" | "service" | "closing";
     store.shiftTimer = data.shiftTimer;
     store.isLastCall = data.isLastCall;
@@ -567,10 +572,17 @@ class Game extends Singleton<Game>() {
 
     // Sync upgrade state
     store.upgrades = data.upgrades;
+    // Track upgrade levels in compendium
+    for (const [id, level] of Object.entries(data.upgrades.levels)) {
+      if (level > 0) compendium.trackUpgradeLevel(id, level);
+    }
 
-    // Auto-hide upgrade panel when leaving prep
+    // Auto-hide upgrade panel and compendium when leaving prep
     if (store.upgradePanel.visible && data.shiftPhase !== "prep") {
       store.upgradePanel.visible = false;
+    }
+    if (store.compendium.visible && data.shiftPhase !== "prep") {
+      store.compendium.visible = false;
     }
 
     // Lights brighten during last call and closing
@@ -581,6 +593,16 @@ class Game extends Singleton<Game>() {
     for (const event of data.events) {
       if (this._seenEventIds.has(event.spawnId)) continue;
       this._seenEventIds.add(event.spawnId);
+      // Track events, drinks, and serves in compendium
+      compendium.trackEvent(event.type);
+      if (event.type === EEngineEventType.DRINK_SERVED) {
+        if (event.data.drinkKey) {
+          compendium.trackDrinkCrafted(event.data.drinkKey as string);
+        }
+        if (event.data.guestName) {
+          compendium.trackGuestServed(event.data.guestName as string);
+        }
+      }
       const toast = this._eventToToast(event.type, event.data);
       if (toast) {
         store.toasts.push({ id: ++store.toastCounter, ...toast, timer: 3 });
@@ -683,6 +705,9 @@ class Game extends Singleton<Game>() {
         const entity = new GuestView();
         this.level?.entityContainer.addChild(entity);
         this._guests.set(guestData.id, { packet: guestData, entity });
+        // Track guest in compendium (met + traits)
+        compendium.trackGuestMet(guestData);
+        compendium.trackTraitsSeen(guestData);
       }
     }
 
