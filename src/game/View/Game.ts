@@ -457,7 +457,12 @@ class Game extends Singleton<Game>() {
         break;
       case "1":
       case "2":
-      case "3": {
+      case "3":
+      case "4":
+      case "5":
+      case "6":
+      case "7":
+      case "8": {
         const idx = parseInt(key) - 1;
         if (idx <= maxIndex) {
           store.upgradePanel.selectedIndex = idx;

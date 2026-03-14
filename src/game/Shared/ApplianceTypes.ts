@@ -12,6 +12,10 @@ export enum EApplianceType {
   HIGHTOP = "hightop",
   TABLE = "table",
   BAR_QUEUE = "bar_queue",
+  KITCHEN = "kitchen",
+  GARNISH_STATION = "garnish_station",
+  SHAKER = "shaker",
+  JUKEBOX = "jukebox",
 }
 
 export interface IApplianceStateData {
@@ -102,6 +106,22 @@ export const APPLIANCE_CONFIGS: Record<EApplianceType, IApplianceConfig> = {
   [EApplianceType.BAR_QUEUE]: {
     type: EApplianceType.BAR_QUEUE, sizeX: 3, sizeY: 1, maxSlots: 6, maxSeats: 0,
     label: "Queue", color: 0xb8860b, stockCapacity: 0, restockCost: 0,
+  },
+  [EApplianceType.KITCHEN]: {
+    type: EApplianceType.KITCHEN, sizeX: 2, sizeY: 1, maxSlots: 4, maxSeats: 0,
+    label: "Kitchen", color: 0xcc6633, stockCapacity: 15, restockCost: 20,
+  },
+  [EApplianceType.GARNISH_STATION]: {
+    type: EApplianceType.GARNISH_STATION, sizeX: 1, sizeY: 1, maxSlots: 4, maxSeats: 0,
+    label: "Garnish", color: 0x66cc66, stockCapacity: 15, restockCost: 10,
+  },
+  [EApplianceType.SHAKER]: {
+    type: EApplianceType.SHAKER, sizeX: 1, sizeY: 1, maxSlots: 2, maxSeats: 0,
+    label: "Shaker", color: 0xc0c0c0, stockCapacity: 0, restockCost: 0,
+  },
+  [EApplianceType.JUKEBOX]: {
+    type: EApplianceType.JUKEBOX, sizeX: 1, sizeY: 1, maxSlots: 0, maxSeats: 0,
+    label: "Jukebox", color: 0xff6699, stockCapacity: 0, restockCost: 0,
   },
 };
 

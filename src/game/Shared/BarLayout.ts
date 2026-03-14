@@ -125,3 +125,14 @@ function buildDefaultLayout(): IBarLayout {
 }
 
 export const DEFAULT_BAR_LAYOUT: IBarLayout = buildDefaultLayout();
+
+/**
+ * Predetermined positions for appliances added by upgrades.
+ * These are placed in the employee area (rows 1-2) at available spots.
+ */
+export const UPGRADE_APPLIANCE_POSITIONS: Record<string, IAppliancePlacement> = {
+  kitchen: { type: EApplianceType.KITCHEN, gridX: 1, gridY: 2 },         // 2-wide, left side behind bar
+  garnish_station: { type: EApplianceType.GARNISH_STATION, gridX: 6, gridY: 1 },  // between card holder and draft
+  shaker: { type: EApplianceType.SHAKER, gridX: 12, gridY: 1 },          // between ice well and sink
+  jukebox: { type: EApplianceType.JUKEBOX, gridX: 18, gridY: 2 },        // far right employee area
+};
