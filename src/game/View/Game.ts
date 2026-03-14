@@ -363,7 +363,7 @@ class Game extends Singleton<Game>() {
     const localPlayer = data.players.find((p) => p.id === Communicator.uuid);
     if (!localPlayer) return;
 
-    const holding = data.editMode.heldApplianceId !== null;
+    const holding = data.editMode.heldApplianceId !== null && data.editMode.heldByUuid === Communicator.uuid;
 
     switch (key) {
       case "e":

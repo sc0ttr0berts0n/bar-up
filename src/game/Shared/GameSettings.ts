@@ -19,7 +19,7 @@ const GameSettings = {
   guestSpawnInterval: 30, // seconds between party arrivals (solo baseline)
   maxPartySize: 4,
   maxConcurrentGuests: 8, // cap total guests in the bar (solo baseline)
-  playerCountGuestScale: [1.0, 1.5, 2.0] as number[], // multiplier per player count (1p, 2p, 3p)
+  playerCountGuestScale: [1.0, 1.25, 1.5] as number[], // multiplier per player count (1p, 2p, 3p)
   partySizeWeights: [40, 35, 15, 10] as number[], // % chance for party of 1,2,3,4
   counterPreferMaxPartySize: 2, // parties <= this size prefer bar counter over tables
   queuePatienceDecayRate: 0.3, // per second while QUEUED
@@ -151,7 +151,7 @@ const GameSettings = {
   // Slip & Fall
   slipDrunkThreshold: 0.4,
   slipHappinessPenalty: 15,
-  slipChance: 0.5, // chance to slip when drunk guest walks through mess
+  slipChance: 0.25, // chance to slip when drunk guest walks through mess
 
   // Last Call
   lastCallTimeRemaining: 60, // seconds before end of service to trigger last call

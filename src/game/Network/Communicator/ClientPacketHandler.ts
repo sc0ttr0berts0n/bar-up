@@ -150,7 +150,7 @@ export class ClientPacketHandler {
       }
       case PACKET_TYPE.CLIENT_EDIT_PICK_UP: {
         const validPacket = ClientPacketHandler._schemaEditPickUp.parse(packet);
-        Server.game?.engine.editModePickUp((validPacket as any).data.applianceId);
+        Server.game?.engine.editModePickUp((validPacket as any).data.applianceId, validPacket.uuid);
         break;
       }
       case PACKET_TYPE.CLIENT_EDIT_PLACE: {

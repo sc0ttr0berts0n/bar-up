@@ -272,9 +272,9 @@ export class Engine {
     }
   }
 
-  editModePickUp(applianceId: string): void {
+  editModePickUp(applianceId: string, byUuid?: string): void {
     if (!this._editModeManager.active) return;
-    this._editModeManager.pickUp(applianceId);
+    this._editModeManager.pickUp(applianceId, byUuid);
   }
 
   editModePlace(gridX: number, gridY: number): void {

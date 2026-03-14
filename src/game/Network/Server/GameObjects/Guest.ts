@@ -430,8 +430,8 @@ export class Guest {
       this._drunkenness = Math.max(0, this._drunkenness - GameSettings.drunkennessDecayRate * dt);
     }
 
-    // Handle movement along path
-    if (this._moveProgress < 1) {
+    // Handle movement along path (frozen while slipped or fighting)
+    if (this._moveProgress < 1 && this._status !== EGuestStatus.SLIPPED && this._status !== EGuestStatus.FIGHTING) {
       this._moveProgress += dt * GameSettings.guestMoveSpeed;
       if (this._moveProgress >= 1) {
         this._moveProgress = 1;

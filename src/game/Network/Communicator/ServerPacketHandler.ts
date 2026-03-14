@@ -149,6 +149,7 @@ export class ServerPacketHandler {
           active: z.boolean(),
           heldApplianceId: z.union([z.string(), z.null()]),
           heldApplianceType: z.union([z.nativeEnum(EApplianceType), z.null()]),
+          heldByUuid: z.union([z.string(), z.null()]),
           previewX: z.number(),
           previewY: z.number(),
           placementValid: z.boolean(),
