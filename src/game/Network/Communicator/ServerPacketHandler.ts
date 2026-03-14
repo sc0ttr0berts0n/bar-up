@@ -85,6 +85,8 @@ export class ServerPacketHandler {
       z.object({ itemType: z.union([z.string(), z.null()]), progress: z.number(), isFood: z.boolean() }),
       z.object({ itemType: z.union([z.string(), z.null()]), progress: z.number(), isFood: z.boolean() }),
     ]),
+    townsfolkId: z.number(),
+    isRegular: z.boolean(),
   });
 
   private static _applianceSchema = z.object({

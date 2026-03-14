@@ -3,6 +3,7 @@ import { EGuestStatus, EGuestTier, type IPersonality, PERSONALITY_DIMENSIONS } f
 import { Random } from "../../../Utils/Random";
 import type { Engine } from "../Engine";
 import { Guest } from "./Guest";
+import { PopulationPool, REGULAR_THRESHOLD, type ITownsfolk } from "./PopulationPool";
 
 /** Tier-based personality generation parameters: [mean, stddev] */
 const PERSONALITY_TIER_PARAMS: Record<EGuestTier, { mean: number; stddev: number }> = {
@@ -16,6 +17,9 @@ export class GuestSpawner {
   private _timeSinceLastSpawn: number = 0;
   private _enabled: boolean = false;
 
+  /** Set of townsfolk IDs currently active in the bar */
+  private _activeTownsfolkIds: Set<number> = new Set();
+
   constructor(engine: Engine) {
     this._engine = engine;
   }
@@ -26,6 +30,20 @@ export class GuestSpawner {
   set enabled(val: boolean) {
     this._enabled = val;
     if (val) this._timeSinceLastSpawn = GameSettings.guestSpawnInterval - 3; // first spawn within ~3 seconds
+  }
+
+  get activeTownsfolkIds(): ReadonlySet<number> {
+    return this._activeTownsfolkIds;
+  }
+
+  /** Track a townsfolk as active (in the bar) */
+  trackActive(townsfolkId: number) {
+    if (townsfolkId >= 0) this._activeTownsfolkIds.add(townsfolkId);
+  }
+
+  /** Untrack a townsfolk (left the bar) */
+  untrackActive(townsfolkId: number) {
+    this._activeTownsfolkIds.delete(townsfolkId);
   }
 
   /** Guest scale multiplier based on active player count */
@@ -66,16 +84,36 @@ export class GuestSpawner {
     // Try to find group seating for the whole party
     const seats = this._engine.findGroupSeating(partySize);
 
+    // Pick townsfolk from the population pool
+    const pool = this._engine.populationPool;
+    const townsfolk = pool
+      ? pool.pickTownsfolk(partySize, new Set(this._activeTownsfolkIds), this._engine.shiftNumber)
+      : [];
+
     // Create all guests with personality-driven traits
     const guests: Guest[] = [];
     for (let i = 0; i < partySize; i++) {
       const guest = new Guest(partyId, entrance.x, entrance.y);
-      const personality = this._rollPersonality(tier);
-      guest.setPersonality(personality);
+
+      if (townsfolk[i]) {
+        // Use townsfolk data from the population pool
+        const person = townsfolk[i];
+        guest.setTownsfolkId(person.id);
+        guest.setName(person.name);
+        guest.setPersonality(person.personality);
+        guest.setPreferredDrink(person.preferredDrink);
+        guest.setRegular(person.visitCount >= REGULAR_THRESHOLD);
+        this.trackActive(person.id);
+      } else {
+        // Fallback: random personality (should rarely happen with 1000 pool)
+        const personality = this._rollPersonality(tier);
+        guest.setPersonality(personality);
+      }
+
       guest.applyTier(tier);
       // Gluttony drives rounds: 1 + floor(gluttony * 3) => 1-4
       // Blend with tier rounds — take the max
-      const gluttonyRounds = 1 + Math.floor(personality.gluttony * 3);
+      const gluttonyRounds = 1 + Math.floor(guest.personality.gluttony * 3);
       guest.setRounds(Math.min(4, Math.max(guest.roundsRemaining, gluttonyRounds)));
       guests.push(guest);
     }

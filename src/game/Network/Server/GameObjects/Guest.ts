@@ -69,6 +69,10 @@ export class Guest {
   private _slotProducedDirtyGlass: [boolean, boolean] = [false, false];
   /** Slip immunity timer — prevents re-slipping immediately after being helped up */
   private _slipImmunity: number = 0;
+  private _townsfolkId: number = -1;
+  private _isRegular: boolean = false;
+  private _totalSpent: number = 0;
+  private _servedUsualWithoutOrdering: boolean = false;
 
   constructor(partyId: string, spawnX: number, spawnY: number) {
     this._id = Random.uuid();
@@ -142,6 +146,9 @@ export class Guest {
   get name() {
     return this._name;
   }
+  setName(name: string) {
+    this._name = name;
+  }
   get chatCount() {
     return this._chatCount;
   }
@@ -150,6 +157,9 @@ export class Guest {
   }
   get preferredDrink() {
     return this._preferredDrink;
+  }
+  setPreferredDrink(drink: string) {
+    this._preferredDrink = drink;
   }
   get preferenceRevealed() {
     return this._preferenceRevealed;
@@ -257,6 +267,38 @@ export class Guest {
       if (this._slots[i].itemType !== null && this._slots[i].progress < 1) return false;
     }
     return true;
+  }
+
+  get townsfolkId() {
+    return this._townsfolkId;
+  }
+  setTownsfolkId(id: number) {
+    this._townsfolkId = id;
+  }
+
+  get isRegular() {
+    return this._isRegular;
+  }
+  setRegular(val: boolean) {
+    this._isRegular = val;
+    if (val) {
+      // Regulars always have their preference revealed
+      this._preferenceRevealed = true;
+    }
+  }
+
+  get totalSpent() {
+    return this._totalSpent;
+  }
+  addSpending(amount: number) {
+    this._totalSpent += amount;
+  }
+
+  get servedUsualWithoutOrdering() {
+    return this._servedUsualWithoutOrdering;
+  }
+  setServedUsualWithoutOrdering() {
+    this._servedUsualWithoutOrdering = true;
   }
 
   get personality() {
@@ -753,8 +795,8 @@ export class Guest {
       ordersCompleted: this._ordersCompleted,
       chatCount: this._chatCount,
       chatAvailable: this._chatAvailable,
-      preferredDrink: this._preferenceRevealed ? this._preferredDrink : null,
-      preferenceRevealed: this._preferenceRevealed,
+      preferredDrink: (this._preferenceRevealed || this._isRegular) ? this._preferredDrink : null,
+      preferenceRevealed: this._preferenceRevealed || this._isRegular,
       traitCount: this._traits.length,
       revealedTraits: this._revealedTraits.map((t) => t as string),
       queuePosition: this._queuePosition,
@@ -769,6 +811,8 @@ export class Guest {
         { ...this._slots[0] },
         { ...this._slots[1] },
       ],
+      townsfolkId: this._townsfolkId,
+      isRegular: this._isRegular,
     };
   }
 }

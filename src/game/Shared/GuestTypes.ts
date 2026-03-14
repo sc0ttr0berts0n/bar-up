@@ -162,4 +162,6 @@ export interface IGuestStateData {
   isDesignatedDriver: boolean;
   /** Dual consumption slots — index 0 is primary (drink), index 1 is secondary (food/extra drink) */
   slots: [IGuestSlot, IGuestSlot];
+  townsfolkId: number;
+  isRegular: boolean;
 }

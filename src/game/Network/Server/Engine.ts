@@ -21,6 +21,7 @@ import { Item } from "./GameObjects/Item";
 import { GuestSpawner } from "./GameObjects/GuestSpawner";
 import { ShiftManager } from "./GameObjects/ShiftManager";
 import { EditModeManager } from "./GameObjects/EditModeManager";
+import { PopulationPool } from "./GameObjects/PopulationPool";
 import {
   WIDGET_BIN, WIDGET_CARD_HOLDER, WIDGET_GLASS_SHELF, WIDGET_SERVICE_BAR,
   WIDGET_COUNTER, WIDGET_HIGHTOP, WIDGET_TABLE, WIDGET_BAR_QUEUE,
@@ -74,6 +75,8 @@ export class Engine {
   private _pendingWash: Map<number, { itemId: string; callback?: () => void }> = new Map();
   private _editModeManager!: EditModeManager;
   private _upgradeLevels: Map<EUpgradeId, number> = new Map();
+  private _populationPool: PopulationPool;
+  private _shiftNumber: number = 0;
   private _widgetContext: IWidgetContext = {
     createItem: (type: EItemType) => {
       const item = new Item(type);
@@ -147,6 +150,10 @@ export class Engine {
       this._menuConfig.set(key, { enabled: true, price: recipe.menuPrice });
     }
 
+    // Generate the population pool (1000 townsfolk)
+    this._populationPool = new PopulationPool();
+    this._populationPool.generate();
+
     // Set up spawner and shift manager
     this._guestSpawner = new GuestSpawner(this);
     this._shiftManager = new ShiftManager();
@@ -165,7 +172,10 @@ export class Engine {
 
       this._guestSpawner.enabled = phase === "service";
       if (phase === "service") {
+        this._shiftNumber++;
         this._shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, tipsEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0, restockCost: 0, breakageCost: 0, wasteCost: 0, totalExpenses: 0 };
+        // Recalculate population affinities for this shift
+        this._populationPool.recalculateAffinities(this._reputation, this.getEnabledDrinkKeys(), this._shiftNumber);
       }
       if (phase === "closing") {
         // Closing transition — force guest state changes
@@ -236,6 +246,12 @@ export class Engine {
   }
   get isRaided() {
     return this._policeRaidTimer > 0;
+  }
+  get populationPool() {
+    return this._populationPool;
+  }
+  get shiftNumber() {
+    return this._shiftNumber;
   }
   get shiftStats() {
     return this._shiftStats;
@@ -700,6 +716,65 @@ export class Engine {
       return;
     }
 
+    // "You remembered!" — serve a regular their usual before they order
+    if (guest.isRegular && guest.preferredDrink &&
+        (guest.status === EGuestStatus.DECIDING || guest.status === EGuestStatus.READY_TO_ORDER)) {
+      const heldForUsual = bartender.heldItemId ? this._items.get(bartender.heldItemId) : null;
+      if (heldForUsual) {
+        const usualRecipe = RECIPES[guest.preferredDrink];
+        if (usualRecipe && heldForUsual.type === usualRecipe.resultType) {
+          // Serve their usual without ordering!
+          guest.setOrder({ drinkKey: guest.preferredDrink });
+          guest.setServedUsualWithoutOrdering();
+          guest.adjustHappiness(GameSettings.regularUsualBonus);
+          guest.adjustPatience(GameSettings.patienceServeBonus);
+          guest.adjustHappiness(GameSettings.happinessServeBonus);
+          guest.adjustHappiness(GameSettings.preferredDrinkBonus);
+
+          const isTableGuest = !this.isCounterGuest(guest);
+          if (isTableGuest) {
+            this._items.delete(heldForUsual.id);
+            bartender.setHeldItem(null, null);
+            this.sendGuestBackToSeat(guest);
+          } else {
+            guest.setStatus(EGuestStatus.DRINKING);
+            const seatAppliance = guest.seatApplianceId
+              ? this._appliances.get(guest.seatApplianceId) : null;
+            if (seatAppliance && seatAppliance.hasOpenSlot()) {
+              const slot = seatAppliance.getFirstOpenSlotIndex();
+              heldForUsual.placeOnAppliance(seatAppliance.id, slot);
+              seatAppliance.setSlot(slot, heldForUsual.id);
+            } else {
+              this._items.delete(heldForUsual.id);
+            }
+            bartender.setHeldItem(null, null);
+          }
+
+          // Earn money
+          const menuEntry = this._menuConfig.get(guest.preferredDrink);
+          const basePrice = menuEntry?.price ?? usualRecipe.menuPrice;
+          const happinessFactor = (guest.happiness / GameSettings.happinessMax) * GameSettings.tipHappinessScale;
+          let tipPercent = GameSettings.tipBasePercent * happinessFactor + GameSettings.tipPreferredDrinkPercent;
+          let tip = Math.round(basePrice * tipPercent);
+          const tierStats = GameSettings.guestTierStats[guest.tier];
+          tip = Math.round(tip * tierStats.tipMultiplier);
+          tip = Math.round(tip * (1.8 - 1.3 * guest.personality.greed));
+          const totalEarnings = basePrice + tip;
+          this._money += totalEarnings;
+          this._shiftStats.moneyEarned += totalEarnings;
+          this._shiftStats.tipsEarned += tip;
+          this._shiftStats.guestsServed++;
+          guest.addSpending(totalEarnings);
+          this._pushEvent(EEngineEventType.DRINK_SERVED, {
+            guestId: guest.id,
+            drinkKey: guest.preferredDrink,
+            money: totalEarnings,
+          });
+          return;
+        }
+      }
+    }
+
     if (guest.status === EGuestStatus.READY_TO_ORDER || guest.status === EGuestStatus.QUEUED) {
       // Block new orders during closing/overtime
       if (this._shiftManager.phase === "closing") return;
@@ -818,6 +893,7 @@ export class Engine {
         this._shiftStats.moneyEarned += totalEarnings;
         this._shiftStats.tipsEarned += tip;
         this._shiftStats.guestsServed++;
+        guest.addSpending(totalEarnings);
         this._pushEvent(EEngineEventType.DRINK_SERVED, {
           guestId: guest.id,
           guestName: guest.name,
@@ -1477,6 +1553,17 @@ export class Engine {
         if (guest.seatApplianceId) {
           const appliance = this._appliances.get(guest.seatApplianceId);
           appliance?.unseatGuest(guest.id);
+        }
+
+        // Record visit to population pool
+        if (guest.townsfolkId >= 0) {
+          this._populationPool.recordVisit(
+            guest.townsfolkId,
+            this._shiftNumber,
+            guest.totalSpent,
+            guest.happiness,
+          );
+          this._guestSpawner.untrackActive(guest.townsfolkId);
         }
       }
       this._guests.delete(id);

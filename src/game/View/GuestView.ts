@@ -37,6 +37,8 @@ export class GuestView extends Container {
   private _traitIcons: Text;
   private _dangerIcon: Text;
   private _overservedIcon: Text;
+  private _regularNameTag: Text;
+  private _regularStar: Text;
   private _displayX: number = -1;
   private _displayY: number = -1;
 
@@ -162,6 +164,31 @@ export class GuestView extends Container {
     this._overservedIcon.y = -r + 2;
     this._overservedIcon.visible = false;
     this.addChild(this._overservedIcon);
+
+    // Regular name tag — visible without chatting
+    this._regularNameTag = new Text({
+      text: "",
+      style: {
+        fontFamily: "monospace",
+        fontSize: 9,
+        fill: 0xffd700,
+        fontWeight: "bold",
+      },
+    });
+    this._regularNameTag.anchor.set(0.5);
+    this._regularNameTag.y = -r - 38;
+    this._regularNameTag.visible = false;
+    this.addChild(this._regularNameTag);
+
+    // Regular star icon — small star next to name
+    this._regularStar = new Text({
+      text: "\u2B50",
+      style: { fontSize: 10 },
+    });
+    this._regularStar.anchor.set(0.5);
+    this._regularStar.y = -r - 38;
+    this._regularStar.visible = false;
+    this.addChild(this._regularStar);
   }
 
   update(_delta: Ticker, state: IGuestStateData) {
@@ -223,6 +250,19 @@ export class GuestView extends Container {
     // Status icon
     this._statusIcon.text = STATUS_ICONS[state.status] ?? "";
 
+    // Regular name tag — always visible for regulars
+    if (state.isRegular) {
+      this._regularNameTag.text = state.name;
+      this._regularNameTag.visible = true;
+      // Position star to the right of name
+      this._regularStar.visible = true;
+      this._regularStar.x = this._regularNameTag.width / 2 + 8;
+      this._regularStar.y = this._regularNameTag.y;
+    } else {
+      this._regularNameTag.visible = false;
+      this._regularStar.visible = false;
+    }
+
     // Order bubble — show during READY_TO_ORDER, QUEUED, and WAITING_FOR_ORDER
     const showOrder =
       state.status === EGuestStatus.READY_TO_ORDER ||
@@ -233,8 +273,15 @@ export class GuestView extends Container {
       let label: string;
       let pillColor: number;
       if (state.status === EGuestStatus.READY_TO_ORDER || state.status === EGuestStatus.QUEUED) {
-        label = "Order?";
-        pillColor = 0x888888;
+        // Regulars show "The Usual" instead of "Order?"
+        if (state.isRegular && state.preferredDrink) {
+          const prefDisplay = ITEM_DISPLAY[state.preferredDrink];
+          label = prefDisplay ? `Usual: ${prefDisplay.label}` : "The Usual";
+          pillColor = prefDisplay?.color ?? 0xffd700;
+        } else {
+          label = "Order?";
+          pillColor = 0x888888;
+        }
       } else {
         const drinkKey = state.order?.drinkKey ?? "";
         label = ITEM_DISPLAY[drinkKey]?.label ?? drinkKey.toUpperCase();
