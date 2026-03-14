@@ -118,6 +118,9 @@ const GameSettings = {
   // Drink Preferences
   preferredDrinkBonus: 15, // extra happiness when serving preferred drink
 
+  // Regulars
+  regularUsualBonus: 25, // happiness bonus for "you remembered!" (serving usual without ordering)
+
   // Overserve
   overserveDrunkennessThreshold: 0.8, // drunkenness level that triggers overserve
   overserveReputationPenalty: -2, // reputation hit per overserve

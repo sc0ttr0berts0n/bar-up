@@ -83,6 +83,10 @@ const tierDisplay = computed(() => {
   return TIER_DISPLAY[guest.value.tier as EGuestTier] ?? null;
 });
 
+const isRegular = computed(() => {
+  return guest.value?.isRegular ?? false;
+});
+
 const preferredDrinkDisplay = computed(() => {
   if (!guest.value?.preferredDrink) return null;
   return ITEM_DISPLAY[guest.value.preferredDrink] ?? null;
@@ -93,7 +97,9 @@ const preferredDrinkDisplay = computed(() => {
   <Transition name="card">
     <div v-if="guest" class="guest-card">
       <div class="guest-card-name">
+        <span v-if="isRegular" class="regular-star">&#11088;</span>
         {{ guest.name }}
+        <span v-if="isRegular" class="regular-badge">Regular</span>
         <span v-if="tierDisplay" class="tier-badge" :style="{ color: tierDisplay.color }">{{ tierDisplay.label }}</span>
       </div>
       <div class="guest-card-status">
@@ -150,7 +156,7 @@ const preferredDrinkDisplay = computed(() => {
       <div v-if="preferredDrinkDisplay" class="guest-card-pref">
         <span class="pref-heart">&#9829;</span>
         <span class="pref-label" :style="{ color: '#' + preferredDrinkDisplay.color.toString(16).padStart(6, '0') }">
-          {{ preferredDrinkDisplay.label }}
+          {{ isRegular ? 'The Usual: ' : '' }}{{ preferredDrinkDisplay.label }}
         </span>
       </div>
       <div v-else-if="guest.chatCount > 0" class="guest-card-pref guest-card-pref-unknown">
@@ -185,6 +191,18 @@ const preferredDrinkDisplay = computed(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.regular-star {
+  font-size: 0.9rem;
+}
+
+.regular-badge {
+  font-size: 0.6rem;
+  font-weight: bold;
+  color: #ffd700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .tier-badge {
