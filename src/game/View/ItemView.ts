@@ -23,6 +23,10 @@ const ITEM_ICONS: Record<EItemType, string> = {
   [EItemType.RUM]: "🥃",
   // Mixed
   [EItemType.HIGHBALL]: "🍹",
+  // Food
+  [EItemType.PRETZELS]: "🥨",
+  [EItemType.NACHOS]: "🧀",
+  [EItemType.SLIDERS]: "🍔",
   // Other
   [EItemType.DIRTY_GLASS]: "💀",
   [EItemType.CUT_OFF_CARD]: "🚫",
