@@ -37,6 +37,9 @@ export class GuestView extends Container {
   private _traitIcons: Text;
   private _dangerIcon: Text;
   private _overservedIcon: Text;
+  private _foodIcon: Text;
+  private _foodProgressBar: Graphics;
+  private _foodWantIcon: Text;
   private _displayX: number = -1;
   private _displayY: number = -1;
 
@@ -162,6 +165,34 @@ export class GuestView extends Container {
     this._overservedIcon.y = -r + 2;
     this._overservedIcon.visible = false;
     this.addChild(this._overservedIcon);
+
+    // Food icon — shows when guest is eating
+    this._foodIcon = new Text({
+      text: "",
+      style: { fontSize: 12 },
+    });
+    this._foodIcon.anchor.set(0.5);
+    this._foodIcon.x = -r - 8;
+    this._foodIcon.y = 0;
+    this._foodIcon.visible = false;
+    this.addChild(this._foodIcon);
+
+    // Food progress bar
+    this._foodProgressBar = new Graphics();
+    this._foodProgressBar.y = r + 25;
+    this._foodProgressBar.visible = false;
+    this.addChild(this._foodProgressBar);
+
+    // Food want indicator — shows when guest wants food
+    this._foodWantIcon = new Text({
+      text: "\uD83C\uDF7D\uFE0F",
+      style: { fontSize: 12 },
+    });
+    this._foodWantIcon.anchor.set(0.5);
+    this._foodWantIcon.x = r + 8;
+    this._foodWantIcon.y = 0;
+    this._foodWantIcon.visible = false;
+    this.addChild(this._foodWantIcon);
   }
 
   update(_delta: Ticker, state: IGuestStateData) {
@@ -399,6 +430,38 @@ export class GuestView extends Container {
       this._traitIcons.visible = true;
     } else {
       this._traitIcons.visible = false;
+    }
+
+    // Food eating icon — show while guest is eating
+    if (state.isEating && state.foodItem) {
+      const foodEmoji: Record<string, string> = {
+        pretzels: "\uD83E\uDD68",
+        nachos: "\uD83E\uDDC0",
+        sliders: "\uD83C\uDF54",
+      };
+      this._foodIcon.text = foodEmoji[state.foodItem] ?? "\uD83C\uDF7D\uFE0F";
+      this._foodIcon.visible = true;
+
+      // Food progress bar (orange, below other bars)
+      this._foodProgressBar.visible = true;
+      this._foodProgressBar.clear();
+      this._foodProgressBar
+        .rect(-barWidth / 2, 0, barWidth, 3)
+        .fill(0x333333);
+      this._foodProgressBar
+        .rect(-barWidth / 2, 0, barWidth * state.foodProgress, 3)
+        .fill(0xe8a030);
+    } else {
+      this._foodIcon.visible = false;
+      this._foodProgressBar.visible = false;
+    }
+
+    // Food want indicator — show when guest wants food but isn't eating
+    if (state.wantsFood && !state.isEating) {
+      this._foodWantIcon.visible = true;
+      this._foodWantIcon.alpha = 0.6 + 0.2 * Math.sin(Date.now() / 400);
+    } else {
+      this._foodWantIcon.visible = false;
     }
   }
 }

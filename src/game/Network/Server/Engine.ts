@@ -1,7 +1,7 @@
 import { DEFAULT_BAR_LAYOUT, type IBarLayout } from "../../Shared/BarLayout";
 import { getActiveLayout } from "../../Shared/LayoutPersistence";
 import { EApplianceType, SEAT_OFFSETS } from "../../Shared/ApplianceTypes";
-import { EItemType } from "../../Shared/ItemTypes";
+import { EItemType, FOOD_TYPES } from "../../Shared/ItemTypes";
 import { EDirection, ETileZone } from "../../Shared/TileTypes";
 import { RECIPES, getMenuDrinkKeys, APPLIANCE_VARIANTS, GRAB_VARIANTS } from "../../Shared/DrinkRecipes";
 import { EGuestStatus, EGuestTrait } from "../../Shared/GuestTypes";
@@ -25,7 +25,7 @@ import {
   WIDGET_BIN, WIDGET_CARD_HOLDER, WIDGET_GLASS_SHELF, WIDGET_SERVICE_BAR,
   WIDGET_COUNTER, WIDGET_HIGHTOP, WIDGET_TABLE, WIDGET_BAR_QUEUE,
   WIDGET_DRAFT_SYSTEM, WIDGET_WINE_RACK, WIDGET_LIQUOR_RAIL,
-  WIDGET_ICE_WELL, WIDGET_SINK,
+  WIDGET_ICE_WELL, WIDGET_SINK, WIDGET_KITCHEN_WINDOW,
   type IWidgetConfig,
 } from "../../Shared/WidgetTypes";
 import type { Game } from "./Game";
@@ -45,6 +45,7 @@ const WIDGET_CONFIGS: Partial<Record<EApplianceType, IWidgetConfig>> = {
   [EApplianceType.LIQUOR_RAIL]: WIDGET_LIQUOR_RAIL,
   [EApplianceType.ICE_WELL]: WIDGET_ICE_WELL,
   [EApplianceType.SINK]: WIDGET_SINK,
+  [EApplianceType.KITCHEN_WINDOW]: WIDGET_KITCHEN_WINDOW,
 };
 
 export class Engine {
@@ -698,6 +699,39 @@ export class Engine {
       this._items.delete(heldForCutOff.id);
       bartender.setHeldItem(null, null);
       return;
+    }
+
+    // Serve food: holding a food item + guest is seated (drinking, deciding, waiting)
+    const heldForFood = bartender.heldItemId
+      ? this._items.get(bartender.heldItemId)
+      : null;
+    if (heldForFood && FOOD_TYPES.has(heldForFood.type)) {
+      // Can serve food to guests who are drinking, deciding, or waiting
+      const canReceiveFood = [
+        EGuestStatus.DRINKING,
+        EGuestStatus.DECIDING,
+        EGuestStatus.WAITING_FOR_ORDER,
+        EGuestStatus.READY_TO_ORDER,
+        EGuestStatus.QUEUED,
+      ].includes(guest.status);
+      if (canReceiveFood && !guest.isEating) {
+        const foodType = heldForFood.type;
+        guest.serveFood(foodType);
+        this._items.delete(heldForFood.id);
+        bartender.setHeldItem(null, null);
+        // Earn money for food
+        const foodPrice = (GameSettings as any).foodPrices[foodType] ?? 0;
+        if (foodPrice > 0) {
+          this._money += foodPrice;
+          this._shiftStats.moneyEarned += foodPrice;
+          this._pushEvent(EEngineEventType.MONEY_EARNED, {
+            amount: foodPrice,
+            x: guest.gridX,
+            y: guest.gridY,
+          });
+        }
+        return;
+      }
     }
 
     if (guest.status === EGuestStatus.READY_TO_ORDER || guest.status === EGuestStatus.QUEUED) {
