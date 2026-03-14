@@ -276,9 +276,9 @@ export class Engine {
     }
   }
 
-  editModePickUp(applianceId: string): void {
+  editModePickUp(applianceId: string, byUuid?: string): void {
     if (!this._editModeManager.active) return;
-    this._editModeManager.pickUp(applianceId);
+    this._editModeManager.pickUp(applianceId, byUuid);
   }
 
   editModePlace(gridX: number, gridY: number): void {
@@ -1306,14 +1306,9 @@ export class Engine {
       }
     }
 
-    // Update edit mode preview position based on bartender facing
-    if (this._editModeManager.active && this._editModeManager.heldApplianceId) {
-      for (const bartender of this._bartenders) {
-        if (bartender.id !== null) {
-          this.editModeUpdatePreview(bartender.id);
-          break; // only one player controls edit mode
-        }
-      }
+    // Update edit mode preview position based on the holder's bartender facing
+    if (this._editModeManager.active && this._editModeManager.heldApplianceId && this._editModeManager.heldByUuid) {
+      this.editModeUpdatePreview(this._editModeManager.heldByUuid);
     }
 
     // Set leave paths for guests that just started leaving
@@ -1415,6 +1410,7 @@ export class Engine {
     for (const guest of this._guests.values()) {
       if (guest.status !== EGuestStatus.LEAVING) continue;
       if (!guest.isMoving) continue;
+      if (guest.slipImmune) continue;
       if (guest.drunkenness < GameSettings.slipDrunkThreshold) continue;
       const messKey = `${guest.gridX},${guest.gridY}`;
       if (this._messes.has(messKey) && Random.range(0, 1) < GameSettings.slipChance) {

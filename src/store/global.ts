@@ -82,6 +82,7 @@ export const store = reactive({
   editMode: {
     active: false,
     heldType: null as EApplianceType | null,
+    heldByUuid: null as string | null,
     placementValid: false,
   },
   upgradePanel: {

@@ -67,6 +67,8 @@ export class Guest {
   private _slotSipsTaken: [number, number] = [0, 0];
   /** Track which slots produced dirty glasses this tick */
   private _slotProducedDirtyGlass: [boolean, boolean] = [false, false];
+  /** Slip immunity timer — prevents re-slipping immediately after being helped up */
+  private _slipImmunity: number = 0;
 
   constructor(partyId: string, spawnX: number, spawnY: number) {
     this._id = Random.uuid();
@@ -133,6 +135,9 @@ export class Guest {
   }
   get drunkenness() {
     return this._drunkenness;
+  }
+  get slipImmune() {
+    return this._slipImmunity > 0;
   }
   get name() {
     return this._name;
@@ -365,6 +370,10 @@ export class Guest {
   }
 
   setStatus(status: EGuestStatus) {
+    // Grant slip immunity when recovering from a slip
+    if (this._status === EGuestStatus.SLIPPED && status !== EGuestStatus.SLIPPED) {
+      this._slipImmunity = 3; // 3 seconds of immunity
+    }
     this._status = status;
     this._statusTimer = 0;
     this._drinkProgress = 0;
@@ -430,13 +439,18 @@ export class Guest {
   tick(dt: number): boolean {
     this._statusTimer += dt;
 
+    // Tick down slip immunity
+    if (this._slipImmunity > 0) {
+      this._slipImmunity = Math.max(0, this._slipImmunity - dt);
+    }
+
     // Passive drunkenness decay (metabolism) — always active
     if (this._drunkenness > 0) {
       this._drunkenness = Math.max(0, this._drunkenness - GameSettings.drunkennessDecayRate * dt);
     }
 
-    // Handle movement along path
-    if (this._moveProgress < 1) {
+    // Handle movement along path (frozen while slipped or fighting)
+    if (this._moveProgress < 1 && this._status !== EGuestStatus.SLIPPED && this._status !== EGuestStatus.FIGHTING) {
       this._moveProgress += dt * GameSettings.guestMoveSpeed;
       if (this._moveProgress >= 1) {
         this._moveProgress = 1;

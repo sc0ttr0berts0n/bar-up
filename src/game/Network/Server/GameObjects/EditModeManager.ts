@@ -36,6 +36,7 @@ export class EditModeManager {
   private _active = false;
   private _snapshot: IAppliancePlacement[] = [];
   private _heldApplianceId: string | null = null;
+  private _heldByUuid: string | null = null;
   private _heldOriginalPos: { gridX: number; gridY: number } | null = null;
   private _previewX = 0;
   private _previewY = 0;
@@ -60,6 +61,7 @@ export class EditModeManager {
 
   get active() { return this._active; }
   get heldApplianceId() { return this._heldApplianceId; }
+  get heldByUuid() { return this._heldByUuid; }
 
   // ── State data for SERVER_UPDATE ────────────────────────────────
 
@@ -70,6 +72,7 @@ export class EditModeManager {
       active: true,
       heldApplianceId: this._heldApplianceId,
       heldApplianceType: held ? held.type : null,
+      heldByUuid: this._heldByUuid,
       previewX: this._previewX,
       previewY: this._previewY,
       placementValid: this._placementValid,
@@ -115,6 +118,7 @@ export class EditModeManager {
     if (!this._active) return;
     // Clear held state first
     this._heldApplianceId = null;
+    this._heldByUuid = null;
     this._heldOriginalPos = null;
     // Restore all appliances to snapshot positions
     const appliancesByType = new Map<string, Appliance[]>();
@@ -148,7 +152,7 @@ export class EditModeManager {
 
   // ── Pick up / Place / Cancel ────────────────────────────────────
 
-  pickUp(applianceId: string): boolean {
+  pickUp(applianceId: string, byUuid?: string): boolean {
     if (!this._active || this._heldApplianceId) return false;
     const appliance = this._appliances.get(applianceId);
     if (!appliance) return false;
@@ -156,6 +160,7 @@ export class EditModeManager {
     // Remove from tile grid
     this._clearTiles(appliance.gridX, appliance.gridY, appliance.sizeX, appliance.sizeY);
     this._heldApplianceId = applianceId;
+    this._heldByUuid = byUuid ?? null;
     this._heldOriginalPos = { gridX: appliance.gridX, gridY: appliance.gridY };
     this._previewX = appliance.gridX;
     this._previewY = appliance.gridY;
@@ -187,6 +192,7 @@ export class EditModeManager {
     appliance.moveTo(gridX, gridY);
     this._registerTiles(appliance);
     this._heldApplianceId = null;
+    this._heldByUuid = null;
     this._heldOriginalPos = null;
     return true;
   }
@@ -265,6 +271,7 @@ export class EditModeManager {
       this._registerTiles(appliance);
     }
     this._heldApplianceId = null;
+    this._heldByUuid = null;
     this._heldOriginalPos = null;
   }
 }

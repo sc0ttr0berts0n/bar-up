@@ -105,6 +105,7 @@ export interface IEditModeStateData {
   active: boolean;
   heldApplianceId: string | null;
   heldApplianceType: EApplianceType | null;
+  heldByUuid: string | null;
   previewX: number;
   previewY: number;
   placementValid: boolean;

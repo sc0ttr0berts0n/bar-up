@@ -25,7 +25,7 @@ export class GuestSpawner {
   }
   set enabled(val: boolean) {
     this._enabled = val;
-    if (val) this._timeSinceLastSpawn = GameSettings.guestSpawnInterval * 0.5; // spawn quickly on start
+    if (val) this._timeSinceLastSpawn = GameSettings.guestSpawnInterval - 3; // first spawn within ~3 seconds
   }
 
   /** Guest scale multiplier based on active player count */
