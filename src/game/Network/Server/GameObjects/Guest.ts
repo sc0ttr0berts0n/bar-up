@@ -311,6 +311,11 @@ export class Guest {
     this._happiness = Math.max(0, Math.min(GameSettings.happinessMax, this._happiness + amount));
   }
 
+  /** Apply mood influence from a nearby guest. Same as adjustHappiness but semantically distinct. */
+  applyMoodInfluence(amount: number) {
+    this._happiness = Math.max(0, Math.min(GameSettings.happinessMax, this._happiness + amount));
+  }
+
   decrementRounds() {
     this._roundsRemaining--;
   }

@@ -102,6 +102,23 @@ const policeColor = computed(() => {
 const policePulse = computed(() => {
   return policeAttention.value >= GameSettings.policeRaidThreshold;
 });
+
+const atmosphereValue = computed(() => store.atmosphere);
+const atmosphereColor = computed(() => {
+  const val = atmosphereValue.value;
+  if (val >= 70) return "#44cc44";
+  if (val >= 40) return "#ffd93d";
+  return "#ff6b6b";
+});
+const atmosphereLabel = computed(() => {
+  const val = atmosphereValue.value;
+  if (val >= 80) return "Lively";
+  if (val >= 60) return "Good";
+  if (val >= 40) return "Okay";
+  if (val >= 20) return "Tense";
+  return "Hostile";
+});
+const showAtmosphere = computed(() => store.shiftPhase === "service" || store.shiftPhase === "closing");
 </script>
 
 <template>
@@ -121,6 +138,15 @@ const policePulse = computed(() => {
       {{ phaseLabel }}
     </div>
     <div class="hud-timer">{{ formattedTimer }}</div>
+    <template v-if="showAtmosphere">
+      <div class="hud-divider"></div>
+      <div class="hud-atmosphere">
+        <span class="atmosphere-label" :style="{ color: atmosphereColor }">{{ atmosphereLabel }}</span>
+        <div class="atmosphere-bar">
+          <div class="atmosphere-fill" :style="{ width: atmosphereValue + '%', background: atmosphereColor }"></div>
+        </div>
+      </div>
+    </template>
     <span v-if="showLastCall" class="hud-last-call">LAST CALL</span>
     <span v-if="store.isOvertime" class="hud-overtime-pulse">OVERTIME</span>
     <button v-if="store.shiftPhase === 'prep' && !store.editMode.active" class="hud-upgrade-btn" @click="toggleUpgradePanel">
@@ -291,6 +317,28 @@ const policePulse = computed(() => {
 @keyframes pulse-police {
   from { opacity: 1; }
   to { opacity: 0.5; }
+}
+.hud-atmosphere {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.atmosphere-label {
+  font-size: 0.8rem;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.atmosphere-bar {
+  width: 60px;
+  height: 8px;
+  background: #333;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.atmosphere-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease, background 0.5s ease;
 }
 .hud-last-call {
   font-size: 1rem;

@@ -44,6 +44,7 @@ export const store = reactive({
   money: 0,
   reputation: 0,
   policeAttention: 0,
+  atmosphere: 50,
   shiftPhase: "prep" as "prep" | "service" | "closing",
   shiftTimer: 0,
   isLastCall: false,

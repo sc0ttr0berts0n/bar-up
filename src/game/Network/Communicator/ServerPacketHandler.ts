@@ -140,6 +140,7 @@ export class ServerPacketHandler {
       policeAttention: z.number(),
       isLastCall: z.boolean(),
       isOvertime: z.boolean(),
+      atmosphere: z.number(),
       editMode: z.union([
         z.object({
           active: z.boolean(),
