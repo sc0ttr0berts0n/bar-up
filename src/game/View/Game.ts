@@ -529,6 +529,7 @@ class Game extends Singleton<Game>() {
     store.money = data.money;
     store.reputation = data.reputation;
     store.policeAttention = data.policeAttention;
+    store.atmosphere = data.atmosphere;
     store.menuConfig = data.menuConfig;
     store.appliances = data.appliances;
     store.shiftPhase = data.shiftPhase as "prep" | "service" | "closing";

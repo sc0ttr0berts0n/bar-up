@@ -159,6 +159,30 @@ const GameSettings = {
   lastCallChugSpeedMultiplier: 2.0, // how fast drinking guests chug during last call
   lastCallDecideSpeed: 3.0, // seconds for last-call deciding (fast)
   overtimeHardCap: 60, // max seconds overtime can last
+
+  // Mood Sync & Group Dynamics
+  moodInfluenceRadiusBase: 2, // base tiles — actual radius = 2 + envy * 3
+  moodInfluenceEnvyScale: 3, // envy multiplier for radius
+  moodInfluenceBaseMult: -0.5, // base mult — actual = -0.5 + envy (kind=positive, envious=negative)
+  moodInfluenceRate: 0.1, // dt multiplier for mood influence per tick
+  intraPartyInfluenceScale: 2, // party members multiply moodInfluenceMult by this
+  partyMemberAngryLeavePenalty: 10, // happiness penalty when party member leaves angry
+
+  // Fight Cascade
+  fightCascadeWrathThreshold: 0.7, // wrath must exceed this for cascade join
+  fightCascadeJoinBase: 0.4, // joinChance = (wrath - 0.5) * this per tick
+  fightCascadePartyWrathThreshold: 0.5, // party members join fights at lower wrath
+  fightCascadePartyJoinScale: 1.5, // party members have 1.5x join chance
+  fightDurationPerParticipant: 5, // extra seconds per additional fighter
+
+  // Atmosphere
+  atmosphereMax: 100,
+  atmosphereMin: 0,
+  atmosphereFightPenalty: 20, // per active fight
+  atmosphereMessPenalty: 5, // per mess on floor
+  atmosphereLustBonus: 0.2, // per guest, multiplied by their lust
+  atmosphereHappyPartyBonus: 2, // per happy party (avg happiness > 60)
+  atmosphereHappinessDecayMod: 0.5, // at atmosphere=0 decay is 1.5x; at atmosphere=100 decay is 0.5x
 } as const;
 
 export default GameSettings;

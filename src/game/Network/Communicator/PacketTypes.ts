@@ -95,6 +95,7 @@ export interface INetworkPacketServerUpdate extends INetworkPacket {
     policeAttention: number;
     isLastCall: boolean;
     isOvertime: boolean;
+    atmosphere: number;
     editMode: IEditModeStateData | null;
     upgrades: IUpgradeStateData;
   };

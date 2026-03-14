@@ -65,6 +65,7 @@ export class Engine {
   private _policeWarningTriggered: boolean = false;
   private _policeRaidTimer: number = 0;
   private _reputation: number = 0;
+  private _atmosphere: number = 50;
   private _shiftStats = { guestsServed: 0, guestsTotal: 0, moneyEarned: 0, tipsEarned: 0, reputationChange: 0, fights: 0, slips: 0, overserves: 0, policeRaids: 0, restockCost: 0, breakageCost: 0, wasteCost: 0, totalExpenses: 0 };
   private _menuConfig: Map<string, { enabled: boolean; price: number }> = new Map();
   private _barQueue: Appliance | null = null;
@@ -229,6 +230,9 @@ export class Engine {
   }
   get policeAttention() {
     return this._policeAttention;
+  }
+  get atmosphere() {
+    return this._atmosphere;
   }
   get isRaided() {
     return this._policeRaidTimer > 0;
@@ -1398,6 +1402,15 @@ export class Engine {
       }
     }
 
+    // Group dynamics: mood sync between nearby guests
+    this._tickMoodSync(dt);
+
+    // Fight cascade: nearby wrathful guests may join active fights
+    this._tickFightCascade(dt);
+
+    // Recalculate bar atmosphere
+    this._calculateAtmosphere();
+
     // Slip detection: leaving guests walking through mess tiles while drunk
     for (const guest of this._guests.values()) {
       if (guest.status !== EGuestStatus.LEAVING) continue;
@@ -1451,6 +1464,8 @@ export class Engine {
     for (const id of toRemove) {
       const guest = this._guests.get(id);
       if (guest) {
+        // Party leave penalty: angry guest leaving drags down party members
+        this._applyPartyLeavePenalty(guest);
         this._shiftStats.guestsTotal++;
         // Reputation change based on happiness at departure
         if (guest.happiness >= 60) {
@@ -1576,6 +1591,167 @@ export class Engine {
       }
     }
     // No space — glass is lost (acceptable for prototype)
+  }
+
+  // ── Group Dynamics ──────────────────────────────────────────
+
+  /** Mood sync: nearby guests influence each other's happiness. */
+  private _tickMoodSync(dt: number) {
+    const guests = [...this._guests.values()];
+    // Only apply to seated/drinking/deciding guests (not walking, leaving, fighting, etc.)
+    const eligible = guests.filter(g =>
+      g.status === EGuestStatus.DECIDING ||
+      g.status === EGuestStatus.READY_TO_ORDER ||
+      g.status === EGuestStatus.WAITING_FOR_ORDER ||
+      g.status === EGuestStatus.DRINKING
+    );
+    if (eligible.length < 2) return;
+
+    // Pre-compute happiness for stable reads during influence pass
+    const happinessSnapshot = new Map<string, number>();
+    for (const g of eligible) {
+      happinessSnapshot.set(g.id, g.happiness);
+    }
+
+    for (const guest of eligible) {
+      const envy = guest.personality.envy;
+      const radius = GameSettings.moodInfluenceRadiusBase + envy * GameSettings.moodInfluenceEnvyScale;
+      const baseMult = GameSettings.moodInfluenceBaseMult + envy; // kind = negative (spread positive), envious = positive (drag down)
+
+      let totalInfluence = 0;
+      const guestHappiness = happinessSnapshot.get(guest.id)!;
+
+      for (const other of eligible) {
+        if (other.id === guest.id) continue;
+        const dist = Math.abs(other.gridX - guest.gridX) + Math.abs(other.gridY - guest.gridY);
+        if (dist > radius) continue;
+
+        const otherHappiness = happinessSnapshot.get(other.id)!;
+        const diff = otherHappiness - guestHappiness;
+        let mult = baseMult;
+
+        // Party members have amplified influence
+        if (guest.partyId === other.partyId) {
+          mult *= GameSettings.intraPartyInfluenceScale;
+        }
+
+        totalInfluence += diff * mult;
+      }
+
+      if (totalInfluence !== 0) {
+        guest.applyMoodInfluence(totalInfluence * GameSettings.moodInfluenceRate * dt);
+      }
+    }
+  }
+
+  /** Fight cascade: nearby wrathful guests may join an active fight. */
+  private _tickFightCascade(dt: number) {
+    const fighters: Guest[] = [];
+    for (const g of this._guests.values()) {
+      if (g.status === EGuestStatus.FIGHTING) fighters.push(g);
+    }
+    if (fighters.length === 0) return;
+
+    for (const guest of this._guests.values()) {
+      if (guest.status === EGuestStatus.FIGHTING) continue;
+      if (guest.status === EGuestStatus.LEAVING || guest.status === EGuestStatus.SLIPPED) continue;
+
+      // Check if near any fighter
+      let nearFighter = false;
+      let isPartyFight = false;
+      for (const fighter of fighters) {
+        const dist = Math.abs(fighter.gridX - guest.gridX) + Math.abs(fighter.gridY - guest.gridY);
+        if (dist <= GameSettings.fightAoeRadius) {
+          nearFighter = true;
+          if (guest.partyId === fighter.partyId) isPartyFight = true;
+          break;
+        }
+      }
+      if (!nearFighter) continue;
+
+      // Party members join at lower wrath threshold
+      const wrathThreshold = isPartyFight
+        ? GameSettings.fightCascadePartyWrathThreshold
+        : GameSettings.fightCascadeWrathThreshold;
+      if (guest.personality.wrath <= wrathThreshold) continue;
+
+      // Roll chance per tick
+      let joinChance = (guest.personality.wrath - 0.5) * GameSettings.fightCascadeJoinBase * dt;
+      if (isPartyFight) joinChance *= GameSettings.fightCascadePartyJoinScale;
+      if (joinChance > 0 && Random.range(0, 1) < joinChance) {
+        guest.setStatus(EGuestStatus.FIGHTING);
+        this._shiftStats.fights++;
+        this._pushEvent(EEngineEventType.BAR_FIGHT_STARTED, { guestId: guest.id, cascade: true });
+      }
+    }
+
+    // Multi-person fights last longer: add extra time per participant beyond the first
+    const fighterCount = [...this._guests.values()].filter(g => g.status === EGuestStatus.FIGHTING).length;
+    if (fighterCount > 1) {
+      // Extend fight timeout for all fighters by scaling — handled via breakage cost increase
+      // (fight duration is per-guest via statusTimer in Guest.tick, no need to modify)
+    }
+  }
+
+  /** Calculate bar atmosphere from 0-100 based on current state. */
+  private _calculateAtmosphere() {
+    const guests = [...this._guests.values()];
+    if (guests.length === 0) {
+      // No guests — atmosphere stays neutral
+      this._atmosphere = 50;
+      return;
+    }
+
+    // Average guest happiness (0-100)
+    let totalHappiness = 0;
+    for (const g of guests) {
+      totalHappiness += g.happiness;
+    }
+    const avgHappiness = totalHappiness / guests.length;
+
+    // Start from average happiness
+    let atmosphere = avgHappiness;
+
+    // Active fights penalty
+    let fightCount = 0;
+    for (const g of guests) {
+      if (g.status === EGuestStatus.FIGHTING) fightCount++;
+    }
+    atmosphere -= fightCount * GameSettings.atmosphereFightPenalty;
+
+    // Messes penalty
+    atmosphere -= this._messes.size * GameSettings.atmosphereMessPenalty;
+
+    // Lustful guest presence bonus
+    for (const g of guests) {
+      atmosphere += g.personality.lust * GameSettings.atmosphereLustBonus;
+    }
+
+    // Happy party bonus: count unique parties where avg happiness > 60
+    const partyHappiness = new Map<string, { total: number; count: number }>();
+    for (const g of guests) {
+      const entry = partyHappiness.get(g.partyId) ?? { total: 0, count: 0 };
+      entry.total += g.happiness;
+      entry.count++;
+      partyHappiness.set(g.partyId, entry);
+    }
+    for (const [, entry] of partyHappiness) {
+      if (entry.count > 1 && entry.total / entry.count > 60) {
+        atmosphere += GameSettings.atmosphereHappyPartyBonus;
+      }
+    }
+
+    this._atmosphere = Math.max(GameSettings.atmosphereMin, Math.min(GameSettings.atmosphereMax, Math.round(atmosphere)));
+  }
+
+  /** Apply party-member-leave penalty: when a guest leaves angry, same-party members lose happiness. */
+  private _applyPartyLeavePenalty(leavingGuest: Guest) {
+    if (leavingGuest.happiness >= 30) return; // not angry
+    for (const other of this._guests.values()) {
+      if (other.id === leavingGuest.id) continue;
+      if (other.partyId !== leavingGuest.partyId) continue;
+      other.adjustHappiness(-GameSettings.partyMemberAngryLeavePenalty);
+    }
   }
 
   /** Calculate and deduct shift-end expenses (restock, breakage, waste). Called before SHIFT_SUMMARY. */
