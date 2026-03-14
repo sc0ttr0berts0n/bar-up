@@ -568,6 +568,10 @@ class Game extends Singleton<Game>() {
 
     // Sync upgrade state
     store.upgrades = data.upgrades;
+    // Track upgrade levels in compendium
+    for (const [id, level] of Object.entries(data.upgrades.levels)) {
+      if (level > 0) compendium.trackUpgradeLevel(id, level);
+    }
 
     // Auto-hide upgrade panel and compendium when leaving prep
     if (store.upgradePanel.visible && data.shiftPhase !== "prep") {
@@ -585,13 +589,15 @@ class Game extends Singleton<Game>() {
     for (const event of data.events) {
       if (this._seenEventIds.has(event.spawnId)) continue;
       this._seenEventIds.add(event.spawnId);
-      // Track events and drink crafting in compendium
+      // Track events, drinks, and serves in compendium
       compendium.trackEvent(event.type);
-      if (event.type === EEngineEventType.ITEM_CRAFTED && event.data.drinkKey) {
-        compendium.trackDrinkCrafted(event.data.drinkKey as string);
-      }
-      if (event.type === EEngineEventType.DRINK_SERVED && event.data.guestName) {
-        compendium.trackGuestServed(event.data.guestName as string);
+      if (event.type === EEngineEventType.DRINK_SERVED) {
+        if (event.data.drinkKey) {
+          compendium.trackDrinkCrafted(event.data.drinkKey as string);
+        }
+        if (event.data.guestName) {
+          compendium.trackGuestServed(event.data.guestName as string);
+        }
       }
       const toast = this._eventToToast(event.type, event.data);
       if (toast) {

@@ -28,6 +28,8 @@ export interface ICompendiumData {
   drinksCrafted: string[];
   /** Appliance types that have been placed in the bar */
   appliancesPlaced: string[];
+  /** Highest upgrade level seen per upgrade id */
+  upgradeLevels: Record<string, number>;
   /** Composite trait values that have been observed on guests */
   traitsSeen: string[];
   /** Engine event types that have been survived */
@@ -64,6 +66,7 @@ function createEmptyData(): ICompendiumData {
     townsfolk: {},
     drinksCrafted: [],
     appliancesPlaced: [],
+    upgradeLevels: {},
     traitsSeen: [],
     eventsSurvived: [],
   };
@@ -87,6 +90,7 @@ class Compendium {
           townsfolk: parsed.townsfolk ?? {},
           drinksCrafted: parsed.drinksCrafted ?? [],
           appliancesPlaced: parsed.appliancesPlaced ?? [],
+          upgradeLevels: parsed.upgradeLevels ?? {},
           traitsSeen: parsed.traitsSeen ?? [],
           eventsSurvived: parsed.eventsSurvived ?? [],
         };
@@ -158,6 +162,15 @@ class Compendium {
   trackAppliancePlaced(applianceType: string): void {
     if (!this._data.appliancesPlaced.includes(applianceType)) {
       this._data.appliancesPlaced.push(applianceType);
+      this._save();
+    }
+  }
+
+  /** Track upgrade levels (stores highest level seen per upgrade id) */
+  trackUpgradeLevel(upgradeId: string, level: number): void {
+    const current = this._data.upgradeLevels[upgradeId] ?? 0;
+    if (level > current) {
+      this._data.upgradeLevels[upgradeId] = level;
       this._save();
     }
   }

@@ -813,6 +813,7 @@ export class Engine {
         this._shiftStats.guestsServed++;
         this._pushEvent(EEngineEventType.DRINK_SERVED, {
           guestId: guest.id,
+          guestName: guest.name,
           drinkKey: guest.order.drinkKey,
           money: totalEarnings,
         });

@@ -12,6 +12,7 @@ import compendium, {
 import { RECIPES } from "../../game/Shared/DrinkRecipes";
 import { APPLIANCE_CONFIGS, EApplianceType } from "../../game/Shared/ApplianceTypes";
 import { EGuestTrait, TRAIT_DISPLAY } from "../../game/Shared/GuestTypes";
+import { UPGRADE_CONFIGS } from "../../game/Shared/UpgradeTypes";
 
 type TabId = "townsfolk" | "drinks" | "appliances" | "traits" | "events";
 
@@ -85,6 +86,17 @@ const applianceEntries = computed(() => {
 });
 
 const appliancesProgress = computed(() => compendium.appliancesProgress);
+
+// ── Upgrades ──────────────────────────────────────────────────
+
+const upgradeEntries = computed(() => {
+  return UPGRADE_CONFIGS.map((config) => ({
+    id: config.id,
+    name: config.name,
+    maxLevel: config.maxLevel,
+    currentLevel: compendium.data.upgradeLevels[config.id] ?? 0,
+  }));
+});
 
 // ── Traits ─────────────────────────────────────────────────────
 
@@ -223,6 +235,23 @@ function pct(unlocked: number, total: number): string {
             >
               <div class="appliance-name">{{ app.unlocked ? app.label : '???' }}</div>
               <div v-if="!app.unlocked" class="appliance-locked">Locked</div>
+            </div>
+          </div>
+
+          <!-- Upgrades Section -->
+          <div class="upgrade-section-header">Upgrades</div>
+          <div class="grid appliances-grid">
+            <div
+              v-for="upg in upgradeEntries"
+              :key="upg.id"
+              class="appliance-card"
+              :class="{ locked: upg.currentLevel === 0 }"
+            >
+              <div class="appliance-name">{{ upg.currentLevel > 0 ? upg.name : '???' }}</div>
+              <div v-if="upg.currentLevel > 0" class="upgrade-level">
+                Lv {{ upg.currentLevel }} / {{ upg.maxLevel }}
+              </div>
+              <div v-else class="appliance-locked">Locked</div>
             </div>
           </div>
         </div>
@@ -535,6 +564,18 @@ function pct(unlocked: number, total: number): string {
   font-size: 0.7rem;
   color: #555;
   font-style: italic;
+}
+
+.upgrade-section-header {
+  font-size: 0.9rem;
+  color: #aaa;
+  font-weight: bold;
+  margin-top: 8px;
+}
+
+.upgrade-level {
+  font-size: 0.7rem;
+  color: #ffd93d;
 }
 
 // ── Traits ─────────────────────────────────────────────────────
