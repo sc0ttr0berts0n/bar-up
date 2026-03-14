@@ -61,6 +61,7 @@ export class EditModeManager {
 
   get active() { return this._active; }
   get heldApplianceId() { return this._heldApplianceId; }
+  get heldByUuid() { return this._heldByUuid; }
 
   // ── State data for SERVER_UPDATE ────────────────────────────────
 

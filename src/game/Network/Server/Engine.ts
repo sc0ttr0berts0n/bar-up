@@ -1302,14 +1302,9 @@ export class Engine {
       }
     }
 
-    // Update edit mode preview position based on bartender facing
-    if (this._editModeManager.active && this._editModeManager.heldApplianceId) {
-      for (const bartender of this._bartenders) {
-        if (bartender.id !== null) {
-          this.editModeUpdatePreview(bartender.id);
-          break; // only one player controls edit mode
-        }
-      }
+    // Update edit mode preview position based on the holder's bartender facing
+    if (this._editModeManager.active && this._editModeManager.heldApplianceId && this._editModeManager.heldByUuid) {
+      this.editModeUpdatePreview(this._editModeManager.heldByUuid);
     }
 
     // Set leave paths for guests that just started leaving
