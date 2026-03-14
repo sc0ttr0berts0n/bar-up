@@ -23,7 +23,7 @@ import type { IPlayerStateData } from "../Shared/PlayerTypes";
 import type { IGuestStateData } from "../Shared/GuestTypes";
 import { EApplianceType, type IApplianceStateData } from "../Shared/ApplianceTypes";
 import { EDirection } from "../Shared/TileTypes";
-import { APPLIANCE_VARIANTS, GRAB_VARIANTS } from "../Shared/DrinkRecipes";
+import { APPLIANCE_VARIANTS, GRAB_VARIANTS, getMixMap } from "../Shared/DrinkRecipes";
 import GameSettings from "../Shared/GameSettings";
 import { lerp } from "../Utils/Lerp";
 import { Level } from "./Level";
@@ -239,10 +239,30 @@ class Game extends Singleton<Game>() {
     if (!config.requiredItems.includes(player.heldItemType as any)) return false;
 
     this._updateSubmenuScreenPos(player);
-    store.submenu.options = config.variants.map((v) => ({
-      label: v.label,
-      color: v.color,
-    }));
+
+    // Filter variants based on mix map (only show valid options for held item)
+    const mixMap = getMixMap(appliance.type as EApplianceType);
+    if (mixMap && mixMap[player.heldItemType as string]) {
+      const validOutputs = mixMap[player.heldItemType as string];
+      const filteredOptions: { label: string; color: number }[] = [];
+      const filteredIndices: number[] = [];
+      for (let i = 0; i < config.variants.length; i++) {
+        if (validOutputs[i]) {
+          filteredOptions.push({ label: config.variants[i].label, color: config.variants[i].color });
+          filteredIndices.push(i);
+        }
+      }
+      if (filteredOptions.length === 0) return false;
+      store.submenu.options = filteredOptions;
+      store.submenu.variantIndices = filteredIndices;
+    } else {
+      store.submenu.options = config.variants.map((v) => ({
+        label: v.label,
+        color: v.color,
+      }));
+      store.submenu.variantIndices = config.variants.map((_, i) => i);
+    }
+
     store.submenu.selectedIndex = 0;
     store.submenu.visible = true;
     return true;
@@ -266,6 +286,7 @@ class Game extends Singleton<Game>() {
       label: v.label,
       color: v.color,
     }));
+    store.submenu.variantIndices = config.variants.map((_, i) => i);
     store.submenu.selectedIndex = 0;
     store.submenu.visible = true;
     return true;
@@ -328,10 +349,12 @@ class Game extends Singleton<Game>() {
   }
 
   private _selectSubMenuOption(index: number) {
+    // Map filtered display index back to original variant index
+    const originalIndex = store.submenu.variantIndices[index] ?? index;
     Communicator.sendToServer<INetworkPacketClientSelect>({
       uuid: Communicator.uuid,
       type: PACKET_TYPE.CLIENT_SELECT,
-      data: { variantIndex: index },
+      data: { variantIndex: originalIndex },
     });
     store.submenu.visible = false;
   }

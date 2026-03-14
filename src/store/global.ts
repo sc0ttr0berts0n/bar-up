@@ -57,6 +57,7 @@ export const store = reactive({
     selectedIndex: 0,
     screenX: 0,
     screenY: 0,
+    variantIndices: [] as number[],
   },
   appliances: [] as IApplianceStateData[],
   menuConfig: [] as { drinkKey: string; enabled: boolean; price: number }[],

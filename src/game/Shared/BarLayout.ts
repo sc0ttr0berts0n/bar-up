@@ -84,6 +84,8 @@ function buildDefaultLayout(): IBarLayout {
     { type: EApplianceType.LIQUOR_RAIL, gridX: 8, gridY: 1 },
     { type: EApplianceType.WINE_RACK, gridX: 10, gridY: 1 },
     { type: EApplianceType.ICE_WELL, gridX: 11, gridY: 1 },
+    { type: EApplianceType.SHAKER, gridX: 12, gridY: 1 },
+    { type: EApplianceType.GARNISH_STATION, gridX: 13, gridY: 1 },
     { type: EApplianceType.SINK, gridX: 14, gridY: 1 },
     { type: EApplianceType.BIN, gridX: 17, gridY: 1 },
     { type: EApplianceType.CARD_HOLDER, gridX: 3, gridY: 1 },
