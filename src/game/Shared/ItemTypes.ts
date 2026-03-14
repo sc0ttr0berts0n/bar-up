@@ -18,6 +18,10 @@ export enum EItemType {
   RUM = "rum",
   // Mixed drinks
   HIGHBALL = "highball",
+  // Food
+  PRETZELS = "pretzels",
+  NACHOS = "nachos",
+  SLIDERS = "sliders",
   // Other
   DIRTY_GLASS = "dirty_glass",
   CUT_OFF_CARD = "cut_off_card",
@@ -27,6 +31,13 @@ export enum EItemType {
 /** Set of all glass types that can be returned to the glass shelf */
 export const GLASS_TYPES = new Set<EItemType>([
   EItemType.GLASS,
+]);
+
+/** Set of all food item types */
+export const FOOD_TYPES = new Set<EItemType>([
+  EItemType.PRETZELS,
+  EItemType.NACHOS,
+  EItemType.SLIDERS,
 ]);
 
 /** Shared display info for items — used by both player and guest views.
@@ -51,6 +62,10 @@ export const ITEM_DISPLAY: Record<string, { label: string; color: number }> = {
   rum: { label: "Rum", color: 0x8a5c08 },
   // Mixed drinks
   highball: { label: "H-ball", color: 0x3570a8 },
+  // Food
+  pretzels: { label: "Pretzel", color: 0xc4943a },
+  nachos: { label: "Nachos", color: 0xd4a020 },
+  sliders: { label: "Slider", color: 0x8b4513 },
   // Other
   dirty_glass: { label: "Dirty", color: 0x666666 },
   cut_off_card: { label: "Cut Off", color: 0xcc3333 },

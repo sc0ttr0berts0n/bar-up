@@ -219,6 +219,13 @@ export interface IGrabVariantConfig {
 }
 
 export const GRAB_VARIANTS: Partial<Record<EApplianceType, IGrabVariantConfig>> = {
+  [EApplianceType.KITCHEN_WINDOW]: {
+    variants: [
+      { type: EItemType.PRETZELS, label: "Pretzels", color: 0xc4943a },
+      { type: EItemType.NACHOS, label: "Nachos", color: 0xd4a020 },
+      { type: EItemType.SLIDERS, label: "Sliders", color: 0x8b4513 },
+    ],
+  },
 };
 
 /** Spirit types that can be mixed into a highball at the ice well */

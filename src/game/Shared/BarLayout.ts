@@ -87,6 +87,7 @@ function buildDefaultLayout(): IBarLayout {
     { type: EApplianceType.SINK, gridX: 14, gridY: 1 },
     { type: EApplianceType.BIN, gridX: 17, gridY: 1 },
     { type: EApplianceType.CARD_HOLDER, gridX: 3, gridY: 1 },
+    { type: EApplianceType.KITCHEN_WINDOW, gridX: 6, gridY: 1 },
     { type: EApplianceType.SERVICE_BAR, gridX: 16, gridY: 2 },
 
     // Seating area

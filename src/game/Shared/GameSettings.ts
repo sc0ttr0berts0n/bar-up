@@ -153,6 +153,14 @@ const GameSettings = {
   slipHappinessPenalty: 15,
   slipChance: 0.25, // chance to slip when drunk guest walks through mess
 
+  // Food
+  foodPrices: { pretzels: 4, nachos: 6, sliders: 8 } as Record<string, number>,
+  foodStock: { pretzels: 15, nachos: 10, sliders: 8 } as Record<string, number>,
+  foodEatingDuration: 10, // seconds to eat food
+  foodSlowFactors: { pretzels: 0.3, nachos: 0.4, sliders: 0.5 } as Record<string, number>,
+  foodHappinessBonus: { pretzels: 0, nachos: 5, sliders: 10 } as Record<string, number>,
+  foodOrderChanceScale: 0.4, // multiplied by gluttony to get food order chance
+
   // Last Call
   lastCallTimeRemaining: 60, // seconds before end of service to trigger last call
   lastCallOrderChance: 0.6, // chance a guest decides to order one more drink

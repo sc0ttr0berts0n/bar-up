@@ -257,3 +257,23 @@ export const WIDGET_SINK: IWidgetConfig = {
   }],
   seats: { north: 0, south: 0, east: 0, west: 0 },
 };
+
+// ── Food Appliance ─────────────────────────────────────────
+
+export const WIDGET_KITCHEN_WINDOW: IWidgetConfig = {
+  type: EApplianceType.KITCHEN_WINDOW,
+  label: "Kitchen",
+  color: 0xc97030,
+  sizeX: 1,
+  sizeY: 1,
+  topSlots: 0,
+  topSlotMode: "normal",
+  stockCapacity: 15,
+  restockCost: 8,
+  storageVariants: [
+    { type: EItemType.PRETZELS, label: "Pretzels" },
+    { type: EItemType.NACHOS, label: "Nachos" },
+    { type: EItemType.SLIDERS, label: "Sliders" },
+  ],
+  seats: { north: 0, south: 0, east: 0, west: 0 },
+};

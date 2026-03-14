@@ -12,6 +12,7 @@ export enum EApplianceType {
   HIGHTOP = "hightop",
   TABLE = "table",
   BAR_QUEUE = "bar_queue",
+  KITCHEN_WINDOW = "kitchen_window",
 }
 
 export interface IApplianceStateData {
@@ -102,6 +103,10 @@ export const APPLIANCE_CONFIGS: Record<EApplianceType, IApplianceConfig> = {
   [EApplianceType.BAR_QUEUE]: {
     type: EApplianceType.BAR_QUEUE, sizeX: 3, sizeY: 1, maxSlots: 6, maxSeats: 0,
     label: "Queue", color: 0xb8860b, stockCapacity: 0, restockCost: 0,
+  },
+  [EApplianceType.KITCHEN_WINDOW]: {
+    type: EApplianceType.KITCHEN_WINDOW, sizeX: 1, sizeY: 1, maxSlots: 0, maxSeats: 0,
+    label: "Kitchen", color: 0xc97030, stockCapacity: 15, restockCost: 8,
   },
 };
 
