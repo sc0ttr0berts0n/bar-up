@@ -17,6 +17,10 @@ function toggleUpgradePanel() {
   store.upgradePanel.selectedIndex = 0;
 }
 
+function toggleCompendium() {
+  store.compendium.visible = !store.compendium.visible;
+}
+
 function enterEditMode() {
   Communicator.sendToServer({
     uuid: Communicator.uuid,
@@ -123,6 +127,9 @@ const policePulse = computed(() => {
     <div class="hud-timer">{{ formattedTimer }}</div>
     <span v-if="showLastCall" class="hud-last-call">LAST CALL</span>
     <span v-if="store.isOvertime" class="hud-overtime-pulse">OVERTIME</span>
+    <button v-if="store.shiftPhase === 'prep' && !store.editMode.active" class="hud-compendium-btn" @click="toggleCompendium">
+      Compendium
+    </button>
     <button v-if="store.shiftPhase === 'prep' && !store.editMode.active" class="hud-upgrade-btn" @click="toggleUpgradePanel">
       Upgrades
     </button>
@@ -213,6 +220,19 @@ const policePulse = computed(() => {
 .hud-timer {
   font-size: 1.3rem;
   color: #aaa;
+}
+.hud-compendium-btn {
+  pointer-events: auto;
+  padding: 4px 12px;
+  background: #7a5cbf;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  &:hover { background: #9070d0; }
 }
 .hud-upgrade-btn {
   pointer-events: auto;

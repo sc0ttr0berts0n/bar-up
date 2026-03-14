@@ -88,4 +88,7 @@ export const store = reactive({
     selectedIndex: 0,
   },
   upgrades: { levels: {} } as IUpgradeStateData,
+  compendium: {
+    visible: false,
+  },
 });

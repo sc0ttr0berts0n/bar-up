@@ -12,6 +12,7 @@ import MenuConfig from "./MenuConfig.vue";
 import StockPanel from "./StockPanel.vue";
 import EditModePanel from "./EditModePanel.vue";
 import UpgradePanel from "./UpgradePanel.vue";
+import Compendium from "./Compendium.vue";
 </script>
 
 <template>
@@ -27,4 +28,5 @@ import UpgradePanel from "./UpgradePanel.vue";
   <ShiftSummary />
   <EditModePanel />
   <UpgradePanel />
+  <Compendium />
 </template>
