@@ -28,6 +28,8 @@ const ZONE_RULES: Record<EApplianceType, ETileZone[]> = {
   [EApplianceType.SERVICE_BAR]: [ETileZone.EMPLOYEE_ONLY],
   [EApplianceType.COUNTER]: [ETileZone.BAR_COUNTER],
   [EApplianceType.BAR_QUEUE]: [ETileZone.BAR_COUNTER],
+  [EApplianceType.SHAKER]: [ETileZone.EMPLOYEE_ONLY],
+  [EApplianceType.GARNISH_STATION]: [ETileZone.EMPLOYEE_ONLY],
   [EApplianceType.HIGHTOP]: [ETileZone.SEATING],
   [EApplianceType.TABLE]: [ETileZone.SEATING],
 };
