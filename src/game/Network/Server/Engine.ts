@@ -1402,6 +1402,7 @@ export class Engine {
     for (const guest of this._guests.values()) {
       if (guest.status !== EGuestStatus.LEAVING) continue;
       if (!guest.isMoving) continue;
+      if (guest.slipImmune) continue;
       if (guest.drunkenness < GameSettings.slipDrunkThreshold) continue;
       const messKey = `${guest.gridX},${guest.gridY}`;
       if (this._messes.has(messKey) && Random.range(0, 1) < GameSettings.slipChance) {
